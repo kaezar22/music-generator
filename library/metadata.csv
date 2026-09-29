@@ -1,0 +1,21 @@
+Name,Key,mode,variation,bpm,TimSig,mood,energy,style,chords,melody,harmony,arpeggio,bass
+song 1,c,minor,natural,60,4/4,quiet,0.2,ambient,Cm-Gm-Cm7-A#,melody_001.mid,harmony_001.mid,arpeggio_001.mid,bass_001.mid
+song 2,a,minor,harmonic,60,4/4,melancolic,0.2,ambient,A-F-Dm-E,melody_002.mid,harmony_002.mid,arpeggio_002.mid,bass_002.mid
+song 3,c,major,natural,60,4/4,cinematic,0.3,ambient,C-A-F-G,melody_003.mid,harmony_003.mid,arpeggio_003.mid,bass_003.mid
+song 4,g,major,natural,60,4/4,quiet,0.2,ambient,E-C-G-D,melody_004.mid,harmony_004.mid,arpeggio_004.mid,bass_004.mid
+song 5,g,minor,harmonic,60,4/4,flamenco,0.2,ambient,Gm-D-D#-D,melody_005.mid,harmony_005.mid,arpeggio_005.mid,bass_005.mid
+song 6,a,major,natural,60,4/4,melancolic,0.2,ambient,A-C#m-Bm-E,melody_006.mid,harmony_006.mid,arpeggio_006.mid,bass_006.mid
+song 7,c,minor,natural,60,4/4,cinematic,0.2,ambient,Cm-A#-G#-D#,melody_007.mid,harmony_007.mid,arpeggio_007.mid,bass_007.mid
+song 8,a,major,mixolidian,60,4/4,optimistic,0.3,ambient,D-A-G-D,melody_008.mid,harmony_008.mid,arpeggio_008.mid,bass_008.mid
+song 9,g,major,natural,60,4/4,cinematic,0.2,ambient,E-C-G-D,melody_009.mid,harmony_009.mid,arpeggio_009.mid,bass_009.mid
+song 10,c,major,natural,60,4/4,optimistic,0.2,ambient,G-F-C-G,melody_010.mid,harmony_010.mid,arpeggio_010.mid,bass_010.mid
+song 11,c,major,natural,60,4/4,melancolic,0.2,ambient,Am-Dm-G-C-Em,melody_011.mid,harmony_011.mid,arpeggio_011.mid,bass_011.mid
+song 12,c,major,natural,60,4/4,optimistic,0.2,ambient,C-G-Am-Em,melody_012.mid,harmony_012.mid,arpeggio_012.mid,bass_012.mid
+song 13,d,major,natural,60,4/4,optimistic,0.2,ambient,D-A-G-Em,melody_013.mid,harmony_013.mid,arpeggio_013.mid,bass_013.mid
+song 14,d,major,natural,60,4/4,optimistic,0.2,ambient,D-Em-G-G,melody_014.mid,harmony_014.mid,arpeggio_014.mid,bass_014.mid
+song 15,c,major,ionian,60,4/4,optimistic,0.2,ambient,Am-F-C-A#,melody_015.mid,harmony_015.mid,arpeggio_015.mid,bass_015.mid
+song 16,c,major,natural,60,4/4,melancolic,0.2,ambient,Am-G-C-C,melody_016.mid,harmony_016.mid,arpeggio_016.mid,bass_016.mid
+song 17,c,major,ionian,60,4/4,quiet,0.2,ambient,C-Am-F-G,melody_017.mid,harmony_017.mid,arpeggio_017.mid,bass_017.mid
+song 18,g,major,natural,60,4/4,optimistic,0.2,ambient,G-C-D-G,melody_018.mid,harmony_018.mid,arpeggio_018.mid,bass_018.mid
+song 19,c,major,natural,60,4/4,optimistic,0.2,ambient,C-F-Dm-G,melody_019.mid,harmony_019.mid,arpeggio_019.mid,bass_019.mid
+song 20,c,major,natural,60,4/4,melancolic,0.2,ambient,Dm-Am-C-C,melody_020.mid,harmony_020.mid,arpeggio_020.mid,bass_020.mid

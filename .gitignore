@@ -1,0 +1,11 @@
+# credenciales: NUNCA al repositorio
+.streamlit/secrets.toml
+credentials.json
+*.json.key
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+# modelo de PyTorch original (la app usa models/melody_lstm_weights.npz)
+*.pt
