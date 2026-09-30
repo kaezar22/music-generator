@@ -15,17 +15,20 @@ Genera una canción nueva: melodía con el LSTM del proyecto, más arpegio, bajo
    - **SIMILAR:** se muestra una advertencia, pero se puede guardar.
    - **COPIA:** el botón de guardar queda bloqueado. Usa **Regenerar**, o deja marcado "Reintentar solo si sale COPIA".
 4. Escucha la mezcla (con volumen por pista) y revisa el piano-roll.
-5. **Guardar y registrar.** Escribe la fila en el Sheet y habilita la descarga de `song_XXX.zip`. Descomprímelo dentro de `AI_MUSIC_Project`.
+5. **Guardar y registrar.** Escribe la fila en el Sheet, guarda la melodía en la pestaña `melodies` y habilita la descarga de `song_XXX.zip`. Descomprímelo dentro de `AI_MUSIC_Project`.
 
 Valores fijos: 60 bpm, 4/4, energy 0.2, style ambient (están en `musicgen/pipeline.py`).
 
 ## Biblioteca
 
-- `library/` trae las 20 canciones actuales y su `metadata.csv`.
-- Las canciones nuevas no quedan en Streamlit Cloud, porque el servidor no guarda archivos. Para que cuenten en la comparación hay dos caminos:
-  - **Subir un zip:** comprime tus carpetas `song_*` (o `AI_MUSIC_Project` completa) y súbela en la barra lateral, o
-  - **Agregarlas al repo:** copia las carpetas nuevas a `library/` y haz commit. Es lo recomendable cada cierto tiempo.
-- La escala de cada canción se lee del Google Sheet. Así la comparación por grados de la escala funciona también con las canciones nuevas.
+La app compara cada melodía nueva contra dos fuentes:
+
+- **`library/`:** las 20 canciones originales, incluidas en el repo.
+- **Pestaña `melodies` del Google Sheet:** cada vez que presionas **Guardar y registrar**, la app guarda ahí las notas de la melodía como texto. Al arrancar las lee, así que la biblioteca crece sola, sin commits ni uploads. La pestaña se crea sola la primera vez. No la edites a mano.
+
+Si una canción está registrada en el Sheet pero su melodía no está en ninguna de las dos fuentes, la barra lateral lo avisa. Para arreglarlo, sube su zip (o tu carpeta `AI_MUSIC_Project` comprimida) en **Agregar canciones** y presiona **Guardar N melodía(s) en el Sheet**. Solo hace falta una vez por canción.
+
+La escala de cada canción se lee del Google Sheet, así que la comparación por grados de la escala funciona también con las canciones nuevas.
 
 ## Correr localmente
 

@@ -8,6 +8,8 @@ import csv
 import os
 import re
 import secrets as pysecrets
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import altair as alt
 import pandas as pd
@@ -27,6 +29,10 @@ PART_LABELS = {"melody": "Melodía", "arpeggio": "Arpegio", "bass": "Bajo", "har
 PART_COLORS = {"melody": "#2a78d6", "arpeggio": "#eb6834", "bass": "#1baf7a", "harmony": "#a3a29c"}
 DEFAULT_VOLUMES = {"melody": 1.0, "arpeggio": 0.45, "bass": 0.6, "harmony": 0.0}
 VERDICT_ICON = {"ORIGINAL": "✅", "SIMILAR": "⚠️", "COPIA": "⛔"}
+
+def now_str():
+    return datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d %H:%M")
+
 
 st.set_page_config(page_title="MusicAI", page_icon="🎵", layout="wide")
 
@@ -85,6 +91,18 @@ def load_metadata():
     return [r for r in rows if r.get("Name")], "CSV incluido en la app"
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_sheet_melodies():
+    """Melodies saved by the app in the 'melodies' tab: (rows, error)."""
+    try:
+        ws = get_worksheet()
+        if ws is None:
+            return [], None
+        return sheets.read_melodies(ws), None
+    except Exception as e:  # noqa: BLE001
+        return [], str(e)
+
+
 def metadata_by_num(rows):
     out = {}
     for r in rows:
@@ -119,7 +137,21 @@ model = get_model()
 with st.sidebar:
     st.header("Biblioteca")
     library = dict(bundled_library(meta_rows))
-    st.caption(f"{len(library)} canciones incluidas en la app.")
+    n_bundled = len(library)
+    sheet_melodies, mel_error = load_sheet_melodies()
+    in_sheet_tab = set()
+    for r in sheet_melodies:
+        in_sheet_tab.add(r["song"])
+        if r["song"] in library:
+            continue
+        try:
+            scale = theory.scale_notes_ordered(r["key"], r["mode"], r.get("variation", "natural"))
+        except Exception:  # noqa: BLE001
+            scale = None
+        library[r["song"]] = originality.make_entry(r["song"], r["notes"], scale)
+    st.caption(f"{n_bundled} incluidas en la app · {len(library) - n_bundled} guardadas en el Sheet.")
+    if mel_error:
+        st.error(f"No se pudo leer la pestaña de melodías: {mel_error}")
     up = st.file_uploader(
         "Agregar canciones (.zip)", type=["zip"],
         help="Comprime tus carpetas song_XXX (o la carpeta AI_MUSIC_Project completa) y súbela. "
@@ -130,8 +162,29 @@ with st.sidebar:
         new = [k for k in extra if k not in library]
         library.update(extra)
         st.caption(f"Zip: {len(extra)} melodías leídas ({len(new)} nuevas).")
+        # melodies from the zip that are not stored yet -> offer to keep them in the Sheet
+        to_store = sorted(k for k in new if k not in in_sheet_tab)
+        if to_store and get_worksheet() is not None:
+            if st.button(f"Guardar {len(to_store)} melodía(s) en el Sheet", type="primary",
+                         help="Así quedan en la biblioteca de forma permanente: " + ", ".join(to_store)):
+                meta_num = metadata_by_num(meta_rows)
+                saved_now = []
+                for k in to_store:
+                    num = int(k.split("_")[1])
+                    row = meta_num.get(num, {})
+                    sheets.save_melody(get_worksheet(), f"{num:03d}", row.get("Key", ""), row.get("mode", ""),
+                                       row.get("variation", ""), extra[k]["notes"], now_str())
+                    saved_now.append(k)
+                load_sheet_melodies.clear()
+                st.success("Guardadas: " + ", ".join(saved_now))
+                st.rerun()
     library.update(ss.saved_songs)
     st.metric("Melodías para comparar", len(library))
+    registered = {f"song_{n:03d}" for n in metadata_by_num(meta_rows)}
+    missing = sorted(registered - set(library))
+    if missing:
+        st.warning("Registradas en el Sheet pero sin melodía para comparar: " + ", ".join(missing)
+                   + ". Sube sus zips arriba y presiona «Guardar … en el Sheet».")
 
     st.divider()
     st.header("Google Sheet")
@@ -147,6 +200,7 @@ with st.sidebar:
         st.caption(f"Conectado · {len(meta_rows)} registros leídos de: {meta_source}")
     if st.button("Recargar metadata"):
         load_metadata.clear()
+        load_sheet_melodies.clear()
         st.rerun()
 
     st.divider()
@@ -324,7 +378,12 @@ st.divider()
 st.subheader("Guardar")
 saved = ss.saved
 if saved:
-    st.success(f"Registrado como **song {int(saved['tag'])}** en la fila {saved['row']} del Sheet.")
+    st.success(f"Registrado como **song {int(saved['tag'])}** en la fila {saved['row']} del Sheet."
+               + ("" if saved.get("melody_error") else
+                  " La melodía quedó guardada en la pestaña «melodies» para futuras comparaciones."))
+    if saved.get("melody_error"):
+        st.warning(f"La fila se registró, pero no se pudo guardar la melodía en la pestaña «melodies»: "
+                   f"{saved['melody_error']}. Sube el zip en la barra lateral para guardarla.")
     st.download_button(f"⬇️ Descargar song_{saved['tag']}.zip", saved["zip"],
                        file_name=f"song_{saved['tag']}.zip", mime="application/zip", type="primary")
     st.caption("Descomprime el zip dentro de tu carpeta AI_MUSIC_Project.")
@@ -349,6 +408,12 @@ else:
             st.error(f"No se pudo escribir en el Sheet: {e}")
         else:
             ss.saved = {"tag": tag, "row": row, "zip": pipeline.song_zip(song, tag)}
+            try:
+                sheets.save_melody(ws, tag, song["key"], song["mode"], song["variation"],
+                                   song["events"]["melody"], now_str())
+            except Exception as e:  # noqa: BLE001
+                ss.saved["melody_error"] = str(e)
+            load_sheet_melodies.clear()
             ss.saved_songs[f"song_{tag}"] = originality.make_entry(
                 f"song_{tag}", song["events"]["melody"], song["scale"])
             ss.next_tag = f"song_{tag_num + 1:03d}"
