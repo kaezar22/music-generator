@@ -374,12 +374,11 @@ s1, s2 = st.columns([3, 2])
 with s1:
     st.subheader(f"{song['key']} {'mayor' if song['mode'] == 'major' else 'menor'} "
                  f"({song['variation']}) · {song['mood']} · {song['length_bars']} compases")
-    st.markdown("**Acordes:** " + "  →  ".join(f"`{c}`" for c in song["chords"])
-                + f"  \n<small>Progresión {'-'.join(song['template_degrees'])} tomada de {song['template_source']} · "
-                  f"arpegio: {pattern_name(song['arp_pattern'])} · bajo: {pattern_name(song['bass_pattern'])} · "
-                  f"temperatura {song['temperature']} · semilla {song['seed']}"
-                + (f" · {song['attempts']} intentos" if song.get("attempts", 1) > 1 else "") + "</small>",
-                unsafe_allow_html=True)
+    st.markdown("**Acordes:** " + "  →  ".join(f"`{c}`" for c in song["chords"]))
+    st.caption(f"Progresión {'-'.join(song['template_degrees'])} tomada de {song['template_source']} · "
+               f"arpegio: {pattern_name(song['arp_pattern'])} · bajo: {pattern_name(song['bass_pattern'])} · "
+               f"temperatura {song['temperature']} · semilla {song['seed']}"
+               + (f" · {song['attempts']} intentos" if song.get("attempts", 1) > 1 else ""))
 with s2:
     v = report["verdict"]
     msg = f"{VERDICT_ICON[v]} **Melodía {v}** — {report['reason']}"
