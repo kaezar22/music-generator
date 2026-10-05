@@ -30,6 +30,12 @@ Si una canción está registrada en el Sheet pero su melodía no está en ningun
 
 La escala de cada canción se lee del Google Sheet, así que la comparación por grados de la escala funciona también con las canciones nuevas.
 
+## Patrones de arpegio y bajo
+
+El arpegio y el bajo ya no usan un patrón fijo. La app extrae los patrones de los archivos `arpeggio_XXX.mid` y `bass_XXX.mid` de `library/` (19 de arpegio y 13 de bajo distintos) y los adapta a los acordes y la escala de la canción nueva. Cada nota se guarda como su posición en el compás y su grado dentro del acorde (fundamental, tercera, quinta o nota de paso).
+
+En **Acompañamiento** puedes dejar cada uno en *Aleatorio*, elegir el estilo de una canción concreta, o volver al patrón *Básico* original. Si agregas carpetas `song_XXX` a `library/` (con su fila en `library/metadata.csv`), sus patrones se suman solos. La lógica está en `musicgen/patterns.py`.
+
 ## Correr localmente
 
 ```bash
@@ -73,6 +79,7 @@ copy ..\AI_MUSIC_Project\melody_vocab.json models\
 app.py                      interfaz Streamlit
 musicgen/theory.py          escalas, acordes, progresiones, bajo/arpegio/armonía
 musicgen/melody.py          LSTM en NumPy + decodificación a notas
+musicgen/patterns.py        patrones de arpegio y bajo aprendidos de library/
 musicgen/originality.py     verificación de similitud de la melodía
 musicgen/synth.py           sintetizador para escuchar en el navegador
 musicgen/midi_io.py         lectura/escritura MIDI en memoria

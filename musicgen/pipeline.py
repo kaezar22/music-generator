@@ -5,6 +5,7 @@ import zipfile
 
 import numpy as np
 
+from . import patterns as pat
 from . import theory
 from .melody import symbols_to_events
 from .midi_io import events_to_midi_bytes
@@ -18,7 +19,9 @@ PARTS = ("melody", "arpeggio", "bass", "harmony")
 
 
 def generate_song(model, progression_library, key, mode, variation, mood, length_bars,
-                  temperature, seed=None):
+                  temperature, seed=None, pattern_library=None, bass_choice="random",
+                  arp_choice="random"):
+    """bass_choice / arp_choice: "random", "basic" or the id of a library pattern."""
     rng = np.random.default_rng(seed)
     scale = theory.scale_notes_ordered(key, mode, variation)
     total_beats = length_bars * BEATS_PER_BAR
@@ -30,7 +33,18 @@ def generate_song(model, progression_library, key, mode, variation, mood, length
     symbols = model.generate_symbols(length_bars * BEATS_PER_BAR * 4, temperature, rng)
     melody = theory.clip_events(symbols_to_events(symbols, scale), total_beats)
 
+    pattern_library = pattern_library or {}
+    bass_pat = pat.choose(pattern_library, "bass", bass_choice, rng)
+    arp_pat = pat.choose(pattern_library, "arpeggio", arp_choice, rng)
+    bass = (pat.apply_pattern(bass_pat, "bass", roots, scale, BEATS_PER_BAR) if bass_pat
+            else theory.bass_events(roots, BEATS_PER_BAR))
+    arpeggio = (pat.apply_pattern(arp_pat, "arpeggio", roots, scale, BEATS_PER_BAR) if arp_pat
+                else theory.arpeggio_events(roots, scale, BEATS_PER_BAR))
+
     return {
+        "bass_choice": bass_choice, "arp_choice": arp_choice,
+        "bass_pattern": bass_pat["id"] if bass_pat else pat.BASIC,
+        "arp_pattern": arp_pat["id"] if arp_pat else pat.BASIC,
         "key": key, "mode": mode, "variation": variation, "mood": mood,
         "length_bars": length_bars, "temperature": temperature, "seed": seed,
         "scale": scale, "total_beats": total_beats,
@@ -39,8 +53,8 @@ def generate_song(model, progression_library, key, mode, variation, mood, length
         "template_source": prog["source"], "template_degrees": prog["degrees"],
         "events": {
             "melody": melody,
-            "arpeggio": theory.arpeggio_events(roots, scale, BEATS_PER_BAR),
-            "bass": theory.bass_events(roots, BEATS_PER_BAR),
+            "arpeggio": theory.clip_events(arpeggio, total_beats),
+            "bass": theory.clip_events(bass, total_beats),
             "harmony": theory.harmony_events(roots, scale, BEATS_PER_BAR),
         },
     }

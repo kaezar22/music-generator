@@ -15,7 +15,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from musicgen import originality, pipeline, sheets, synth, theory
+from musicgen import originality, patterns, pipeline, sheets, synth, theory
 from musicgen.melody import MelodyModel
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -103,6 +103,14 @@ def load_sheet_melodies():
         return [], str(e)
 
 
+@st.cache_resource
+def get_pattern_library():
+    """Bass / arpeggio patterns extracted from the songs bundled in library/."""
+    with open(LOCAL_METADATA, newline="", encoding="utf-8") as f:
+        rows = [{k.strip(): (v or "").strip() for k, v in r.items()} for r in csv.DictReader(f)]
+    return patterns.load_patterns(LIBRARY_DIR, rows)
+
+
 def metadata_by_num(rows):
     out = {}
     for r in rows:
@@ -132,6 +140,7 @@ ss.setdefault("saved", None)       # {"tag","zip","row"} for the current song
 meta_rows, meta_source = load_metadata()
 progression_library = theory.build_progression_library(meta_rows)
 model = get_model()
+pattern_library = get_pattern_library()
 
 # ----------------------------------------------------------------- sidebar
 with st.sidebar:
@@ -234,13 +243,18 @@ def run_generation(params, retry_until_ok, max_tries=10):
     tries = max_tries if retry_until_ok else 1
     for attempt in range(1, tries + 1):
         seed = pysecrets.randbits(32)
-        song = pipeline.generate_song(model, progression_library, seed=seed, **params)
+        song = pipeline.generate_song(model, progression_library, seed=seed,
+                                      pattern_library=pattern_library, **params)
         report = originality.check_melody(song["events"]["melody"], song["scale"], library)
         if report["verdict"] != "COPIA":
             break
     song["attempts"] = attempt
     ss.song, ss.report, ss.saved = song, report, None
     ss.pop("tracks", None)
+
+
+def pattern_name(pid):
+    return "básico" if pid == patterns.BASIC else f"estilo {pid}"
 
 
 def piano_roll(song):
@@ -307,15 +321,40 @@ with c3:
     retry = st.checkbox("Reintentar solo si sale COPIA (hasta 10 veces)", value=True)
     st.caption(f"Fijos: {pipeline.BPM} bpm · {pipeline.TIME_SIG} · energy {pipeline.ENERGY} · {pipeline.STYLE}")
 
+def pattern_options(part):
+    return ["random", patterns.BASIC] + [p["id"] for p in pattern_library.get(part, [])]
+
+
+def pattern_label(part):
+    density = {p["id"]: p["notes_per_bar"] for p in pattern_library.get(part, [])}
+
+    def fmt(opt):
+        if opt == "random":
+            return f"Aleatorio (entre {len(density)} patrones de la biblioteca)"
+        if opt == patterns.BASIC:
+            return "Básico (el patrón fijo original)"
+        return f"Estilo {opt} · {density[opt]:.0f} notas por compás"
+    return fmt
+
+
+st.subheader("Acompañamiento")
+a1, a2, _ = st.columns(3)
+arp_choice = a1.selectbox("Patrón de arpegio", pattern_options("arpeggio"), format_func=pattern_label("arpeggio"),
+                          help="Los patrones salen de los arpegios de las canciones de la biblioteca y se "
+                               "adaptan a los acordes y la escala de la canción nueva.")
+bass_choice = a2.selectbox("Patrón de bajo", pattern_options("bass"), format_func=pattern_label("bass"),
+                           help="Igual que el arpegio, a partir de los bajos de la biblioteca.")
+
 params = dict(key=key, mode=mode, variation=variation, mood=mood,
-              length_bars=length_bars, temperature=temperature)
+              length_bars=length_bars, temperature=temperature,
+              arp_choice=arp_choice, bass_choice=bass_choice)
 
 b1, b2, _ = st.columns([1, 1, 4])
 if b1.button("🎼 Generar", type="primary", width="stretch"):
     with st.spinner("Generando melodía y verificando originalidad…"):
         run_generation(params, retry)
 if ss.song is not None and b2.button("🔄 Regenerar", width="stretch",
-                                     help="Nueva melodía con los parámetros actuales."):
+                                     help="Nueva melodía (y nuevos patrones, si están en Aleatorio) con los parámetros actuales."):
     with st.spinner("Regenerando…"):
         run_generation(params, retry)
 
@@ -337,6 +376,7 @@ with s1:
                  f"({song['variation']}) · {song['mood']} · {song['length_bars']} compases")
     st.markdown("**Acordes:** " + "  →  ".join(f"`{c}`" for c in song["chords"])
                 + f"  \n<small>Progresión {'-'.join(song['template_degrees'])} tomada de {song['template_source']} · "
+                  f"arpegio: {pattern_name(song['arp_pattern'])} · bajo: {pattern_name(song['bass_pattern'])} · "
                   f"temperatura {song['temperature']} · semilla {song['seed']}"
                 + (f" · {song['attempts']} intentos" if song.get("attempts", 1) > 1 else "") + "</small>",
                 unsafe_allow_html=True)
