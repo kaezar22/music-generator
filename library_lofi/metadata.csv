@@ -1,0 +1,21 @@
+Name,Key,mode,variation,bpm,TimSig,mood,energy,style,chords,melody,harmony,arpeggio,bass
+song 1,c,major,natural,70,4/4,optimistic,0.4,lofi,Fmaj7-G7-Cmaj7-Am7,lofi_melody_001.mid,lofi_harmony_001.mid,lofi_arpeggio_001.mid,lofi_bass_001.mid
+song 2,d,minor,natural,70,4/4,melancholic,0.4,lofi,Dm9-Gm7-Bbmaj7-Am7,lofi_melody_002.mid,lofi_harmony_002.mid,lofi_arpeggio_002.mid,lofi_bass_002.mid
+song 3,f,minor,dorian,80,4/4,chill,0.45,lofi,Fm9-Bb13-Ebmaj9-Cm7,lofi_melody_003.mid,lofi_harmony_003.mid,lofi_arpeggio_003.mid,lofi_bass_003.mid
+song 4,eb,major,lydian,80,4/4,dreamy,0.35,lofi,Ebmaj9-F9-Gm7-Cm9/G,lofi_melody_004.mid,lofi_harmony_004.mid,lofi_arpeggio_004.mid,lofi_bass_004.mid
+song 5,a,minor,harmonic,70,4/4,nostalgic,0.4,lofi,Am9-Fmaj7-Dm9-E7b9,lofi_melody_005.mid,lofi_harmony_005.mid,lofi_arpeggio_005.mid,lofi_bass_005.mid
+song 6,g,major,mixolydian,88,4/4,warm,0.5,lofi,G9-Fmaj9-Cmaj7-Dm9,lofi_melody_006.mid,lofi_harmony_006.mid,lofi_arpeggio_006.mid,lofi_bass_006.mid
+song 7,e,minor,dorian,84,4/4,chill,0.45,lofi,Em9-F#m7-Gmaj7-A13,lofi_melody_007.mid,lofi_harmony_007.mid,lofi_arpeggio_007.mid,lofi_bass_007.mid
+song 8,bb,major,natural,76,4/4,relaxed,0.35,lofi,Cm9-F13-Bbmaj9-Gm9,lofi_melody_008.mid,lofi_harmony_008.mid,lofi_arpeggio_008.mid,lofi_bass_008.mid
+song 9,b,minor,harmonic,72,4/4,melancholic,0.3,lofi,Bm9-Em9-C#m7b5-F#7b9,lofi_melody_009.mid,lofi_harmony_009.mid,lofi_arpeggio_009.mid,lofi_bass_009.mid
+song 10,f#,minor,natural,90,4/4,hopeful,0.55,lofi,F#m9-Bm7-Dmaj7-E6,lofi_melody_010.mid,lofi_harmony_010.mid,lofi_arpeggio_010.mid,lofi_bass_010.mid
+song 11,ab,major,lydian,78,4/4,peaceful,0.35,lofi,Abmaj9-Gm7-Fm9-Bb13,lofi_melody_011.mid,lofi_harmony_011.mid,lofi_arpeggio_011.mid,lofi_bass_011.mid
+song 12,d,major,mixolydian,86,4/4,groovy,0.5,lofi,D9-Em9-Cmaj9-Gmaj7,lofi_melody_012.mid,lofi_harmony_012.mid,lofi_arpeggio_012.mid,lofi_bass_012.mid
+song 13,db,major,natural,82,4/4,nostalgic,0.4,lofi,Gbmaj9-Ab13-Fm7-Bbm9,lofi_melody_013.mid,lofi_harmony_013.mid,lofi_arpeggio_013.mid,lofi_bass_013.mid
+song 14,c,minor,natural,74,4/4,introspective,0.35,lofi,Cm9-Abmaj7-Ebmaj9-Bb6,lofi_melody_014.mid,lofi_harmony_014.mid,lofi_arpeggio_014.mid,lofi_bass_014.mid
+song 15,g,minor,dorian,75,4/4,focused,0.45,lofi,Gm9-Dm9-Fmaj9-C13,lofi_melody_015.mid,lofi_harmony_015.mid,lofi_arpeggio_015.mid,lofi_bass_015.mid
+song 16,f,major,mixolydian,85,4/4,playful,0.5,lofi,F9-Cm7-Ebmaj7-Bbmaj7,lofi_melody_016.mid,lofi_harmony_016.mid,lofi_arpeggio_016.mid,lofi_bass_016.mid
+song 17,e,minor,harmonic,79,4/4,bittersweet,0.4,lofi,Em9-Cmaj7-Gmaj7-B7b9,lofi_melody_017.mid,lofi_harmony_017.mid,lofi_arpeggio_017.mid,lofi_bass_017.mid
+song 18,bb,major,lydian,81,4/4,serene,0.4,lofi,Bbmaj9-Fmaj9-Gm9-C13,lofi_melody_018.mid,lofi_harmony_018.mid,lofi_arpeggio_018.mid,lofi_bass_018.mid
+song 19,a,minor,dorian,87,4/4,chill,0.6,lofi,Am9-D9-Gmaj7-Cmaj7,lofi_melody_019.mid,lofi_harmony_019.mid,lofi_arpeggio_019.mid,lofi_bass_019.mid
+song 20,c#,minor,natural,71,4/4,melancholic,0.25,lofi,C#m9-B6-Amaj7-G#m7,lofi_melody_020.mid,lofi_harmony_020.mid,lofi_arpeggio_020.mid,lofi_bass_020.mid

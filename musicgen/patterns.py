@@ -17,7 +17,9 @@ from .originality import diatonic_index
 from .theory import chord_root_pc, scale_notes_ordered
 
 PARTS = ("bass", "arpeggio")
-RANGE = {"bass": (24, 60), "arpeggio": (36, 88)}
+LOFI_PARTS = ("bass", "arpeggio", "harmony")  # lo-fi also learns the comping rhythm
+RANGE = {"bass": (24, 60), "arpeggio": (36, 88), "harmony": (40, 84)}
+LOFI_RANGE = {"bass": (24, 60), "arpeggio": (36, 100), "harmony": (40, 86)}
 BASIC = "basic"  # the fixed rule-based pattern the app started with
 
 
@@ -42,15 +44,15 @@ def _signature(bars):
     return tuple(sig)
 
 
-def load_patterns(library_dir, metadata_rows, beats_per_bar=4):
+def load_patterns(library_dir, metadata_rows, beats_per_bar=4, parts=PARTS):
     """{part: [pattern]} with pattern = {id, source, bars, notes_per_bar}."""
     meta = {}
     for r in metadata_rows:
         m = re.search(r"(\d+)\s*$", str(r.get("Name", "")))
         if m:
             meta[int(m.group(1))] = r
-    out = {p: [] for p in PARTS}
-    seen = {p: set() for p in PARTS}
+    out = {p: [] for p in parts}
+    seen = {p: set() for p in parts}
     for folder in sorted(glob.glob(os.path.join(library_dir, "song_*"))):
         m = re.search(r"song_(\d+)$", folder)
         if not m or int(m.group(1)) not in meta:
@@ -64,8 +66,9 @@ def load_patterns(library_dir, metadata_rows, beats_per_bar=4):
             continue
         if not roots:
             continue
-        for part in PARTS:
-            files = sorted(glob.glob(os.path.join(folder, f"{part}*.mid")))
+        for part in parts:
+            files = sorted(glob.glob(os.path.join(folder, f"{part}*.mid"))
+                           + glob.glob(os.path.join(folder, f"lofi_{part}*.mid")))
             if not files:
                 continue
             try:
@@ -108,12 +111,17 @@ def _nearest_pitch(pc, target):
     return best
 
 
-def apply_pattern(pattern, part, root_pcs, scale, beats_per_bar=4):
-    """Re-voice a pattern on the new chord roots -> [(start, pitch, dur)]."""
-    lo, hi = RANGE[part]
+def apply_pattern(pattern, part, root_pcs, scale, beats_per_bar=4, ranges=None, bar_scales=None):
+    """Re-voice a pattern on the new chord roots -> [(start, pitch, dur)].
+
+    bar_scales: optional scale per bar (harmonic minor uses the raised 7th only
+    on the dominant chords)."""
+    lo, hi = (ranges or RANGE)[part]
     events = []
     bars = pattern["bars"]
     for i, root_pc in enumerate(root_pcs):
+        if bar_scales:
+            scale = bar_scales[i]
         tb = bars[i % len(bars)]
         root_deg = diatonic_index(root_pc, scale) % 7
         shift = (root_pc - tb["root_pc"] + 6) % 12 - 6   # nearest transposition, -6..+5

@@ -61,6 +61,7 @@ def append_song(ws, record):
 # text in a separate tab of the same spreadsheet. On start-up the app rebuilds
 # the comparison library from this tab — no commits or uploads needed.
 MELODY_TAB = "melodies"
+LOFI_MELODY_TAB = "melodies lofi"
 MELODY_HEADER = ["song", "key", "mode", "variation", "n_notes", "notes", "saved_at"]
 GRID = 4  # 16th notes per beat
 
@@ -81,22 +82,22 @@ def decode_notes(text):
     return notes
 
 
-def melody_worksheet(main_ws, create=True):
-    """The 'melodies' tab next to the metadata tab (created on first use)."""
+def melody_worksheet(main_ws, create=True, tab=MELODY_TAB):
+    """The melodies tab next to the metadata tab (created on first use)."""
     sh = main_ws.spreadsheet
     try:
-        return sh.worksheet(MELODY_TAB)
+        return sh.worksheet(tab)
     except gspread.WorksheetNotFound:
         if not create:
             return None
-        ws = sh.add_worksheet(title=MELODY_TAB, rows=200, cols=len(MELODY_HEADER))
+        ws = sh.add_worksheet(title=tab, rows=200, cols=len(MELODY_HEADER))
         ws.update(range_name="A1", values=[MELODY_HEADER], value_input_option="RAW")
         return ws
 
 
-def read_melodies(main_ws):
+def read_melodies(main_ws, tab=MELODY_TAB):
     """[{song, key, mode, variation, notes}] stored in the melodies tab."""
-    ws = melody_worksheet(main_ws, create=False)
+    ws = melody_worksheet(main_ws, create=False, tab=tab)
     if ws is None:
         return []
     values = ws.get_all_values()
@@ -112,9 +113,9 @@ def read_melodies(main_ws):
     return out
 
 
-def save_melody(main_ws, tag, key, mode, variation, notes, saved_at):
+def save_melody(main_ws, tag, key, mode, variation, notes, saved_at, tab=MELODY_TAB):
     """Append one melody (tag like '021'); replaces an existing row for the same song."""
-    ws = melody_worksheet(main_ws, create=True)
+    ws = melody_worksheet(main_ws, create=True, tab=tab)
     song = f"song_{tag}"
     row = [song, str(key).lower(), mode, variation, len(notes), encode_notes(notes), saved_at]
     existing = ws.col_values(1)

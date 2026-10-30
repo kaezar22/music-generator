@@ -95,7 +95,8 @@ def _scale_for(num, metadata_by_num):
 def load_folder_library(root, metadata_by_num):
     """{song_name: entry} from root/song_XXX/melody*.mid."""
     lib = {}
-    for path in sorted(glob.glob(os.path.join(root, "song_*", "melody*.mid"))):
+    for path in sorted((glob.glob(os.path.join(root, "song_*", "melody*.mid"))
+                              + glob.glob(os.path.join(root, "song_*", "lofi_melody*.mid")))):
         folder = os.path.basename(os.path.dirname(path))
         m = SONG_RE.search(folder)
         if not m:
@@ -113,6 +114,8 @@ def load_zip_library(zip_bytes, metadata_by_num):
         for info in z.infolist():
             name = info.filename.replace("\\", "/")
             base = name.rsplit("/", 1)[-1].lower()
+            if base.startswith("lofi_"):
+                base = base[5:]
             if info.is_dir() or not base.startswith("melody") or not base.endswith((".mid", ".midi")):
                 continue
             m = SONG_RE.search(name) or re.search(r"melody_(\d+)", base)
