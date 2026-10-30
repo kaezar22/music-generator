@@ -14,6 +14,16 @@ import numpy as np
 
 from .theory import STEP
 
+# Melody symbol encodings. A symbol is a scale-degree index plus an optional
+# "+"/"-" for a note a semitone above/below that degree.
+#  v1 (ambient model, notebook): index = degree + 7 * (pitch // 12) -> octaves
+#     are counted from C, so in A minor the step B->C jumps 8 indices.
+#  v2 (lo-fi model): index = degree + 7 * ((pitch - tonic) // 12) -> octaves are
+#     counted from the song's own tonic, so the same melodic gesture gets the
+#     same symbols in every key.
+ENCODING_V1 = "c_octave_v1"
+ENCODING_V2 = "tonic_relative_v2"
+
 MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 
 
@@ -28,6 +38,8 @@ class MelodyModel:
         self.symbol_to_id = vocab["symbol_to_id"]
         self.id_to_symbol = {int(v): k for k, v in self.symbol_to_id.items()}
         self.seq_len = vocab["sequence_length"]
+        self.encoding = vocab.get("encoding", ENCODING_V1)
+        self.octave_center = vocab.get("octave_center")
         w = np.load(os.path.join(models_dir, "melody_lstm_weights.npz"))
         self.emb = w["embedding__weight"].astype(np.float64)
         self.layers = []
@@ -81,7 +93,31 @@ class MelodyModel:
         return out
 
 
-def symbol_to_pitch(symbol, scale):
+def _intervals(scale):
+    tonic = scale[0]
+    return tonic, [(pc - tonic) % 12 for pc in scale]
+
+
+def pitch_to_symbol(pitch, scale, encoding=ENCODING_V2):
+    """MIDI pitch -> symbol ('17', '17+', '17-'). Notes outside the scale are
+    written as a semitone above (+) or below (-) the nearest degree."""
+    pc = pitch % 12
+    alt, base = "", pitch
+    if pc not in scale:
+        if (pc - 1) % 12 in scale:
+            alt, base = "+", pitch - 1
+        elif (pc + 1) % 12 in scale:
+            alt, base = "-", pitch + 1
+        else:  # two semitones from every degree: snap to the nearest one
+            base = min((pitch + d for d in (-2, 2)), key=lambda q: (q % 12 not in scale, abs(q - pitch)))
+    if encoding == ENCODING_V1:
+        return f"{scale.index(base % 12) + 7 * (base // 12)}{alt}"
+    tonic, iv = _intervals(scale)
+    rel = base - tonic
+    return f"{iv.index(rel % 12) + 7 * (rel // 12)}{alt}"
+
+
+def symbol_to_pitch(symbol, scale, encoding=ENCODING_V1):
     alteration = 0
     core = symbol
     if symbol.endswith("+"):
@@ -89,10 +125,13 @@ def symbol_to_pitch(symbol, scale):
     elif symbol.endswith("-"):
         alteration, core = -1, symbol[:-1]
     idx = int(core)
+    if encoding == ENCODING_V2:
+        tonic, iv = _intervals(scale)
+        return tonic + 12 * (idx // 7) + iv[idx % 7] + alteration
     return scale[idx % 7] + 12 * (idx // 7) + alteration
 
 
-def symbols_to_events(symbols, scale):
+def symbols_to_events(symbols, scale, encoding=ENCODING_V1):
     """Grid symbols -> [(start_beat, pitch, dur_beats)] decoded in the target scale."""
     events = []
     cur = None
@@ -107,7 +146,7 @@ def symbols_to_events(symbols, scale):
         else:
             if cur:
                 events.append(tuple(cur))
-            cur = [k * STEP, symbol_to_pitch(s, scale), STEP]
+            cur = [k * STEP, symbol_to_pitch(s, scale, encoding), STEP]
     if cur:
         events.append(tuple(cur))
     return events

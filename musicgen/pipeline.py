@@ -31,7 +31,8 @@ def generate_song(model, progression_library, key, mode, variation, mood, length
     n_loop = len(prog["degrees"])
 
     symbols = model.generate_symbols(length_bars * BEATS_PER_BAR * 4, temperature, rng)
-    melody = theory.clip_events(symbols_to_events(symbols, scale), total_beats)
+    melody = theory.clip_events(
+        symbols_to_events(symbols, scale, getattr(model, "encoding", "c_octave_v1")), total_beats)
 
     pattern_library = pattern_library or {}
     bass_pat = pat.choose(pattern_library, "bass", bass_choice, rng)

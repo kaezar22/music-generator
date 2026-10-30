@@ -16,11 +16,53 @@ ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII"]
 
 IONIAN = [0, 2, 4, 5, 7, 9, 11]
 MIXOLYDIAN = [0, 2, 4, 5, 7, 9, 10]
+LYDIAN = [0, 2, 4, 6, 7, 9, 11]
 NAT_MINOR = [0, 2, 3, 5, 7, 8, 10]
 HARM_MINOR = [0, 2, 3, 5, 7, 8, 11]
+DORIAN = [0, 2, 3, 5, 7, 9, 10]
 
 # Values offered in the UI, spelled the way the Google Sheet already uses them.
 VARIATIONS = {"major": ["natural", "mixolidian"], "minor": ["natural", "harmonic"]}
+
+# Every (mode, variation) the datasets use. Old ambient sheet spells "mixolidian".
+SCALES = {
+    ("major", "natural"): IONIAN,
+    ("major", "ionian"): IONIAN,
+    ("major", "lydian"): LYDIAN,
+    ("major", "mixolydian"): MIXOLYDIAN,
+    ("major", "mixolidian"): MIXOLYDIAN,
+    ("minor", "natural"): NAT_MINOR,
+    ("minor", "aeolian"): NAT_MINOR,
+    ("minor", "harmonic"): HARM_MINOR,
+    ("minor", "dorian"): DORIAN,
+}
+
+KEY_RE = re.compile(r"^([a-g])([#b]?)$")
+
+
+def parse_key(key):
+    """Strict key parser for Sheet values: 'c', 'f#', 'eb', 'bb', 'b' (= B natural).
+
+    The accidental is only read from a SECOND character, so a lone 'b' is B,
+    never a flat. Raises ValueError on anything else."""
+    k = str(key).strip().lower()
+    m = KEY_RE.match(k)
+    if not m:
+        raise ValueError(f"key no reconocida: {key!r}")
+    pc = NOTE_TO_PC[m.group(1).upper()]
+    pc += {"#": 1, "b": -1, "": 0}[m.group(2)]
+    return pc % 12
+
+
+def parse_scale(key, mode, variation):
+    """Strict: -> ordered scale pitch classes. Raises ValueError for unknown or
+    incompatible values (e.g. 'dorian' with mode 'major')."""
+    mode = str(mode).strip().lower()
+    variation = str(variation).strip().lower()
+    if (mode, variation) not in SCALES:
+        raise ValueError(f"combinación mode/variation no reconocida: {mode!r}/{variation!r}")
+    root = parse_key(key)
+    return [(root + i) % 12 for i in SCALES[(mode, variation)]]
 
 
 def key_to_pc(key):
@@ -34,9 +76,15 @@ def key_to_pc(key):
 
 
 def scale_notes_ordered(key, mode, variation="natural"):
-    root = key_to_pc(key)
+    """Lenient version used by the app: unknown variations fall back to the
+    plain major / natural minor scale."""
     mode = str(mode).strip().lower()
     variation = str(variation).strip().lower()
+    try:
+        return parse_scale(key, mode, variation)
+    except ValueError:
+        pass
+    root = key_to_pc(key)
     if mode == "major":
         intervals = MIXOLYDIAN if ("mixolid" in variation or "mixolyd" in variation) else IONIAN
     elif mode == "minor":
@@ -47,6 +95,51 @@ def scale_notes_ordered(key, mode, variation="natural"):
 
 
 chord_root_pc = key_to_pc
+
+# ---------------------------------------------------------------- chord labels
+# Intervals (semitones above the root) for the chord types in the datasets.
+CHORD_QUALITIES = {
+    "": (0, 4, 7), "maj": (0, 4, 7), "m": (0, 3, 7), "min": (0, 3, 7),
+    "dim": (0, 3, 6), "aug": (0, 4, 8), "+": (0, 4, 8),
+    "sus2": (0, 2, 7), "sus4": (0, 5, 7), "sus": (0, 5, 7),
+    "6": (0, 4, 7, 9), "m6": (0, 3, 7, 9), "add9": (0, 4, 7, 14), "madd9": (0, 3, 7, 14),
+    "maj7": (0, 4, 7, 11), "maj9": (0, 4, 7, 11, 14), "maj13": (0, 4, 7, 11, 14, 21),
+    "maj7#11": (0, 4, 7, 11, 18),
+    "m7": (0, 3, 7, 10), "m9": (0, 3, 7, 10, 14), "m11": (0, 3, 7, 10, 14, 17),
+    "m7b5": (0, 3, 6, 10), "dim7": (0, 3, 6, 9), "mmaj7": (0, 3, 7, 11),
+    "7": (0, 4, 7, 10), "9": (0, 4, 7, 10, 14), "11": (0, 4, 7, 10, 14, 17),
+    "13": (0, 4, 7, 10, 14, 21), "7b9": (0, 4, 7, 10, 13), "7#9": (0, 4, 7, 10, 15),
+    "7sus4": (0, 5, 7, 10), "9sus4": (0, 5, 7, 10, 14),
+}
+CHORD_RE = re.compile(r"^([A-G])([#b]?)([^/]*)(?:/([A-G])([#b]?))?$")
+
+
+def parse_chord(label):
+    """'C#m7b5', 'Bbmaj9', 'Cm9/G' -> {root_pc, bass_pc, quality, pcs, third_pc}.
+
+    Raises ValueError if the label or chord type is not recognised."""
+    lab = str(label).strip()
+    m = CHORD_RE.match(lab)
+    if not m:
+        raise ValueError(f"acorde no reconocido: {label!r}")
+    root = (NOTE_TO_PC[m.group(1)] + {"#": 1, "b": -1, "": 0}[m.group(2)]) % 12
+    quality = m.group(3)
+    if quality not in CHORD_QUALITIES:
+        raise ValueError(f"tipo de acorde no reconocido: {quality!r} en {label!r}")
+    intervals = CHORD_QUALITIES[quality]
+    bass = root
+    if m.group(4):
+        bass = (NOTE_TO_PC[m.group(4)] + {"#": 1, "b": -1, "": 0}[m.group(5)]) % 12
+    pcs = {(root + i) % 12 for i in intervals} | {bass}
+    third = next(((root + i) % 12 for i in intervals if i in (3, 4)), None)
+    return {"label": lab, "root_pc": root, "bass_pc": bass, "quality": quality,
+            "pcs": pcs, "third_pc": third}
+
+
+def parse_chords(text):
+    """'Dm9-G7-Cmaj7' -> list of parsed chords (cells are strip()-ed)."""
+    return [parse_chord(c) for c in str(text).strip().split("-") if c.strip()]
+
 
 
 def chord_tones(root_pc, scale):
