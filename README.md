@@ -42,6 +42,20 @@ Las canciones que genera la app en lo-fi pasan `tools/validate_lofi_dataset.py`,
 
 Secret opcional: `lofi_worksheet_gid` si la pestaña lo-fi cambia de gid (por defecto 913708363).
 
+## Modo melodic techno
+
+Estilo `worakls` (pestaña del Sheet gid 297000043; secret opcional `techno_worksheet_gid`). Genera 6 partes: lead, contramelodía, 2 arpegios, bajo y armonía. Biblioteca: `library_techno/` (5 canciones a mano + `metadata.csv` exportado de la pestaña).
+
+- **Acompañamiento:** patrones de bajo, arpegio y armonía sacados de tus canciones, tomando los archivos de las columnas del Sheet (`arpeggio` + `arpeggio2`, `harmony`…). Acepta pads que suenan 2 compases, loops de 8 y los cromatismos que escribiste (G# bajo A en el bajo de 001, C# sobre F en el arpegio 2 de 002).
+- **Acordes:** la progresión conserva la calidad original de cada acorde (v menor y V mayor en la misma canción). Si una calidad no encaja en la tonalidad nueva, el acorde se reconstruye con la escala. Escalas: menor natural, armónica, dórica, frigia y mayor.
+- **Lead:** usa el ritmo de uno de tus ganchos (003, 003/melody2, 004, 005); las notas son nuevas (del acorde en tiempos fuertes, por grados en el resto). El motivo se repite sobre cada acorde y cada segunda frase cambia su final.
+- **Contramelodía:** por reglas, con el ritmo de una de tus líneas lentas (001, 002) variado. Va por debajo del lead, con notas del acorde y el menor movimiento posible, buscando terceras y sextas, y sin unísonos ni quintas u octavas paralelas.
+- **Arpegios en pareja:** si el primero viene de una canción con dos arpegios (002) se usa su pareja; si no, el más distinto en registro y densidad (y se separan una octava si quedan juntos).
+- **Originalidad:** el lead y la contramelodía se comparan contra tus 9 melodías techno; las dos se guardan en la pestaña `melodies techno`.
+- **Guardado:** fila `song_XXX` con `style = worakls` y columnas `melody`, `melody2`, `arpeggio`, `arpeggio2`, `bass`, `harmony`; zip con los archivos `techno_…_XXX.mid` (melodías completas, acompañamiento como loop).
+
+Cuando haya 10–15 canciones techno se podrá afinar el LSTM con sus melodías.
+
 ## Biblioteca
 
 La app compara cada melodía nueva contra dos fuentes:
@@ -103,7 +117,9 @@ app.py                      interfaz Streamlit
 musicgen/theory.py          escalas, acordes, progresiones, bajo/arpegio/armonía
 musicgen/melody.py          LSTM en NumPy + decodificación a notas
 musicgen/patterns.py        patrones de arpegio, bajo y comping aprendidos de library/ y library_lofi/
-musicgen/moods.py           grupos de mood (calma / melancólico / luminoso)
+musicgen/moods.py           grupos de mood por estilo
+musicgen/styles.py          todas las diferencias entre estilos (ambient, lofi, worakls)
+musicgen/techno_melody.py   lead por plantillas rítmicas y contramelodía por reglas (techno)
 musicgen/originality.py     verificación de similitud de la melodía
 musicgen/synth.py           sintetizador para escuchar en el navegador
 musicgen/midi_io.py         lectura/escritura MIDI en memoria
@@ -113,6 +129,7 @@ models/                     pesos del LSTM ambient (.npz) y vocabulario
 models/lofi/                modelo lo-fi + training_report.json
 library/                    canciones ambient + metadata.csv
 library_lofi/               las 20 canciones lo-fi a mano + metadata.csv
+library_techno/             las 5 canciones melodic techno + metadata.csv
 tools/validate_lofi_dataset.py   valida el dataset lo-fi (Sheet + MIDI) antes de entrenar
 tools/train_melody.py            entrena y exporta el modelo lo-fi
 ```

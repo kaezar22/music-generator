@@ -13,12 +13,12 @@ import zipfile
 import numpy as np
 
 from . import patterns as pat
-from . import theory
+from . import styles, techno_melody, theory
 from .melody import symbols_to_events
 from .midi_io import events_to_midi_bytes
-from .moods import mood_group
+from .moods import grouper
 
-AMBIENT, LOFI = "ambient", "lofi"
+AMBIENT, LOFI = "ambient", "lofi"  # nombres de estilo (las diferencias viven en styles.py)
 BPM = 60
 BEATS_PER_BAR = 4
 TIME_SIG = "4/4"
@@ -97,91 +97,185 @@ def _names_for_voicings(prog, roots, scale, variation, harmony, labels):
 def generate_song(model, progression_library, key, mode, variation, mood, length_bars,
                   temperature, seed=None, pattern_library=None, bass_choice="random",
                   arp_choice="random", style=AMBIENT, harmony_choice="random", octave=0,
-                  bpm=None, energy=None):
-    """bass/arp/harmony_choice: "random", "basic" or the id of a library pattern."""
+                  bpm=None, energy=None, lead_choice="random", arp2_choice="auto"):
+    """bass/arp/harmony_choice: "random", "basic" or the id of a library pattern.
+    Everything that differs between styles comes from musicgen/styles.py."""
+    cfg = styles.get(style)
     rng = np.random.default_rng(seed)
-    lofi = style == LOFI
-    scale = theory.parse_scale(key, mode, variation) if lofi else theory.scale_notes_ordered(key, mode, variation)
+    if cfg["strict_scale"]:
+        scale = theory.parse_scale(key, mode, variation)
+    else:
+        scale = theory.scale_notes_ordered(key, mode, variation)
     total_beats = length_bars * BEATS_PER_BAR
 
-    if lofi:
-        prog = theory.pick_progression(progression_library, mood, mode, rng, group_of=mood_group)
+    group_of = grouper(cfg["mood_groups"]) if cfg["mood_groups"] else None
+    prog = theory.pick_progression(progression_library, mood, mode, rng, group_of=group_of)
+    if cfg["chords"] == "extended":
         labels, roots, chord_pcs = theory.realize_progression_ext(prog, scale, length_bars, variation)
         bar_scales = [theory.chord_scale(scale, variation, scale.index(r)) for r in roots]
+    elif cfg["chords"] == "original":
+        labels, roots, chord_pcs, bar_scales = theory.realize_progression_orig(prog, scale, length_bars, variation, mode)
     else:
-        prog = theory.pick_progression(progression_library, mood, mode, rng)
         labels, roots = theory.realize_progression(prog["degrees"], scale, length_bars)
         chord_pcs, bar_scales = None, None
     n_loop = len(prog["degrees"])
 
-    symbols = model.generate_symbols(length_bars * BEATS_PER_BAR * 4, temperature, rng)
-    melody = symbols_to_events(symbols, scale, getattr(model, "encoding", "c_octave_v1"))
-    if lofi:
-        if str(variation).strip().lower() == "harmonic":
+    centred = cfg["melody_center"] is not None
+    templates = (pattern_library or {}).get("melody_templates") or []
+    lead_t = None
+    if cfg.get("melody_source", "lstm") == "templates":
+        # melodic techno: lead from the user's rhythm templates (no model yet)
+        lead_t = techno_melody.choose(templates, "hook", lead_choice, rng)
+        melody = techno_melody.make_lead(lead_t, roots, chord_pcs, bar_scales, length_bars, rng,
+                                         temperature, cfg["melody_center"] + 12 * octave)
+    else:
+        symbols = model.generate_symbols(length_bars * BEATS_PER_BAR * 4, temperature, rng)
+        melody = symbols_to_events(symbols, scale, getattr(model, "encoding", "c_octave_v1"))
+        if cfg["harmonic_sevenths"] and str(variation).strip().lower() == "harmonic":
             melody = _harmonic_sevenths(melody, scale, bar_scales)
-        melody = _snap_to_harmony(melody, bar_scales, chord_pcs)
-        melody = center_melody(melody, MELODY_CENTER + 12 * octave)
+        if cfg["snap_melody"]:
+            melody = _snap_to_harmony(melody, bar_scales, chord_pcs)
+        if centred:
+            melody = center_melody(melody, cfg["melody_center"] + 12 * octave)
     melody = theory.clip_events(melody, total_beats)
 
     pattern_library = pattern_library or {}
-    ranges = pat.LOFI_RANGE if lofi else pat.RANGE
+    ranges = cfg["pattern_ranges"]
     bass_pat = pat.choose(pattern_library, "bass", bass_choice, rng)
     arp_pat = pat.choose(pattern_library, "arpeggio", arp_choice, rng)
-    harm_pat = pat.choose(pattern_library, "harmony", harmony_choice, rng) if lofi else None
+    harmony_patterns = cfg["harmony"] == "patterns"
+    harm_pat = pat.choose(pattern_library, "harmony", harmony_choice, rng) if harmony_patterns else None
 
     def apply(p, part):
+        if cfg["split_held"]:
+            return pat.apply_pattern(p, part, roots, scale, BEATS_PER_BAR, ranges, bar_scales, split_held=True)
         return pat.apply_pattern(p, part, roots, scale, BEATS_PER_BAR, ranges, bar_scales)
 
     bass = apply(bass_pat, "bass") if bass_pat else theory.bass_events(roots, BEATS_PER_BAR)
     arpeggio = apply(arp_pat, "arpeggio") if arp_pat else theory.arpeggio_events(roots, scale, BEATS_PER_BAR)
-    if lofi:
+    if harmony_patterns:
         harmony = apply(harm_pat, "harmony") if harm_pat else _block_chords(chord_pcs, BEATS_PER_BAR)
-        labels = _names_for_voicings(prog, roots, scale, variation, harmony, labels)
+        if cfg["chords"] == "extended":  # original chords keep their names
+            labels = _names_for_voicings(prog, roots, scale, variation, harmony, labels)
     else:
         harmony = theory.harmony_events(roots, scale, BEATS_PER_BAR)
 
-    loop_bars = min(length_bars, math.lcm(n_loop, 4)) if lofi else length_bars
+    extra, extra_info = {}, {}
+    if "arpeggio2" in cfg["parts"]:
+        arp2_pat, shift = _pick_second_arpeggio(pattern_library.get("arpeggio", []), arp_pat, arp2_choice, rng)
+        arp2 = [(o, p + shift, d) for o, p, d in apply(arp2_pat, "arpeggio")] if arp2_pat else []
+        extra["arpeggio2"] = theory.clip_events(arp2, total_beats)
+        extra_info["arp2_pattern"] = arp2_pat["id"] if arp2_pat else None
+    if "melody2" in cfg["parts"]:
+        counter_t = techno_melody.choose(templates, "slow", "random", rng)
+        center = (cfg["melody_center"] or 72) + 12 * octave
+        extra["melody2"] = theory.clip_events(
+            techno_melody.make_counter(counter_t, melody, roots, chord_pcs, bar_scales, length_bars, rng, center),
+            total_beats)
+        extra_info["counter_template"] = counter_t["id"] if counter_t else "un acorde por nota"
+    if lead_t is not None:
+        extra_info["lead_template"] = lead_t["id"]
+
+    loop_bars = min(length_bars, math.lcm(n_loop, 4)) if cfg["export_loops"] else length_bars
+    chosen_bpm = float(bpm) if (cfg["bpm_range"] and bpm) else (cfg["fixed_bpm"] or BPM)
+    chosen_energy = (float(energy) if (cfg["energy_range"] and energy is not None)
+                     else (cfg["fixed_energy"] if cfg["fixed_energy"] is not None else ENERGY))
+
+    generated = {
+        "melody": melody,
+        "arpeggio": theory.clip_events(arpeggio, total_beats),
+        "bass": theory.clip_events(bass, total_beats),
+        "harmony": theory.clip_events(harmony, total_beats),
+    }
+    generated.update(extra)
+    missing = [p for p in cfg["parts"] if p not in generated]
+    if missing:
+        raise NotImplementedError(f"el estilo {style!r} pide partes que aún no se generan: {missing}")
 
     return {
         "style": style,
+        "parts": tuple(cfg["parts"]),
         "loop_bars": loop_bars,
-        "bpm": float(bpm) if (lofi and bpm) else BPM,
-        "energy": float(energy) if (lofi and energy is not None) else ENERGY,
-        "octave": octave if lofi else 0,
+        "bpm": chosen_bpm,
+        "energy": chosen_energy,
+        "octave": octave if centred else 0,
         "bass_choice": bass_choice, "arp_choice": arp_choice, "harmony_choice": harmony_choice,
         "bass_pattern": bass_pat["id"] if bass_pat else pat.BASIC,
         "arp_pattern": arp_pat["id"] if arp_pat else pat.BASIC,
-        "harmony_pattern": (harm_pat["id"] if harm_pat else pat.BASIC) if lofi else None,
+        "harmony_pattern": (harm_pat["id"] if harm_pat else pat.BASIC) if harmony_patterns else None,
         "key": key, "mode": mode, "variation": variation, "mood": mood,
         "length_bars": length_bars, "temperature": temperature, "seed": seed,
         "scale": scale, "total_beats": total_beats,
         "chords": labels[:n_loop],  # one loop of the progression (sheet format)
         "chords_full": labels,
         "template_source": prog["source"], "template_degrees": prog["degrees"],
-        "events": {
-            "melody": melody,
-            "arpeggio": theory.clip_events(arpeggio, total_beats),
-            "bass": theory.clip_events(bass, total_beats),
-            "harmony": theory.clip_events(harmony, total_beats),
-        },
+        "events": {p: generated[p] for p in cfg["parts"]},
+        **extra_info,
     }
 
 
+def _register(pattern):
+    pitches = [n[1] for b in pattern["bars"] for n in b["notes"]]
+    return sum(pitches) / len(pitches)
+
+
+def _pick_second_arpeggio(pool, first, choice, rng):
+    """Second arpeggio with a different role from the first -> (pattern, octave shift).
+
+    If the first one comes from a song that already pairs two arpeggios (002), use
+    its partner, as the user wrote it. Otherwise prefer the pattern farthest in
+    register and density; if both still sit in the same register, the second
+    moves an octave away (up when it is the busier one)."""
+    if not pool:
+        return None, 0
+    if choice not in (None, "auto", "random"):
+        partner = next((p for p in pool if p["id"] == choice), None)
+    else:
+        partner = None
+        if first is not None:
+            partner = next((p for p in pool if p["source"] == first["source"] and p["id"] != first["id"]), None)
+        if partner is None:
+            others = [p for p in pool if first is None or p["source"] != first["source"]] or pool
+            if first is None:
+                partner = others[int(rng.integers(len(others)))]
+            else:
+                def distance(p):
+                    d_reg = abs(_register(p) - _register(first)) / 12
+                    d_den = abs(p["notes_per_bar"] - first["notes_per_bar"]) / max(p["notes_per_bar"], first["notes_per_bar"])
+                    return d_reg + d_den
+                scores = np.array([distance(p) for p in others]) + 1e-6
+                partner = others[int(rng.choice(len(others), p=scores / scores.sum()))]
+    shift = 0
+    if first is not None and partner is not None and abs(_register(partner) - _register(first)) < 5:
+        shift = 12 if partner["notes_per_bar"] >= first["notes_per_bar"] else -12
+    return partner, shift
+
+
+def song_parts(song):
+    """Parts of a generated song, in the style's order."""
+    return song.get("parts") or styles.get(song.get("style", AMBIENT))["parts"]
+
+
+def is_melodic(part):
+    return part.startswith("melody")
+
+
 def file_prefix(song):
-    return "lofi_" if song.get("style") == LOFI else ""
+    return styles.get(song.get("style", AMBIENT))["file_prefix"]
 
 
 def midi_files(song, tag):
     """{filename: bytes}: melody_021.mid … (ambient) or lofi_melody_021.mid … (lo-fi).
 
-    Lo-fi exports harmony, bass and arpeggio as their repeating loop (4 bars),
-    like the hand-made dataset; the melody keeps the full length."""
-    pre = file_prefix(song)
+    Styles with export_loops export the accompaniment as its repeating loop
+    (4 bars), like the hand-made dataset; the melody keeps the full length."""
+    cfg = styles.get(song.get("style", AMBIENT))
+    pre = cfg["file_prefix"]
     loop_beats = song.get("loop_bars", song["length_bars"]) * BEATS_PER_BAR
     files = {}
-    for part in PARTS:
+    for part in song_parts(song):
         events = song["events"][part]
-        if part != "melody" and song.get("style") == LOFI:
+        if not is_melodic(part) and cfg["export_loops"]:
             events = theory.clip_events(events, loop_beats)
         files[f"{pre}{part}_{tag}.mid"] = events_to_midi_bytes(events, song.get("bpm", BPM))
     return files
@@ -196,11 +290,11 @@ def song_zip(song, tag):
 
 
 def sheet_record(song, number, tag):
-    pre = file_prefix(song)
-    lofi = song.get("style") == LOFI
+    cfg = styles.get(song.get("style", AMBIENT))
+    pre = cfg["file_prefix"]
     bpm = song.get("bpm", BPM)
     return {
-        "Name": f"song{number:03d}" if lofi else f"song {number}",
+        "Name": cfg["name_format"].format(n=number),
         "Key": song["key"].lower(),
         "mode": song["mode"],
         "variation": song["variation"],
@@ -208,10 +302,8 @@ def sheet_record(song, number, tag):
         "TimSig": TIME_SIG,
         "mood": song["mood"],
         "energy": song.get("energy", ENERGY),
-        "style": LOFI if lofi else STYLE,
+        "style": cfg["sheet_style"],
         "chords": "-".join(song["chords"]),
-        "melody": f"{pre}melody_{tag}.mid",
-        "harmony": f"{pre}harmony_{tag}.mid",
-        "arpeggio": f"{pre}arpeggio_{tag}.mid",
-        "bass": f"{pre}bass_{tag}.mid",
+        # one column per part, named like the part (melody2, arpeggio2… in techno)
+        **{part: f"{pre}{part}_{tag}.mid" for part in song_parts(song)},
     }

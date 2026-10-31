@@ -1,0 +1,6 @@
+Name,Key,mode,variation,bpm,TimSig,mood,energy,style,chords,melody,harmony,arpeggio,bass,melody2,melody3,arpeggio2
+song_001,d,minor,harmonic,128,4/4,mysterious,0.8,worakls,Dm-Dm-F-A-Dm-Dm-Bb-A,techno_melody1_001.mid,techno_harmony1_001.mid,techno_arpeggio1_001.mid,techno_bass_001.mid,techno_melody2_001.mid,techno_melody3_001.mid,
+song_002,d,minor,harmonic,128,4/4,melancholic,0.8,worakls,Dm-Dm-Am-Am-F-F-A-A,techno_melody1_002.mid,techno_harmony1_002.mid,techno_arpeggio1_002.mid,techno_bass_002.mid,techno_melody2_002.mid,,techno_arpeggio2_002.mid
+song_003,c,minor,natural,128,4/4,emotional,0.8,worakls,Cm-Ab-Eb-Eb,techno_melody1_003.mid,techno_harmony1_003.mid,techno_arpeggio1_003.mid,techno_bass_003.mid,techno_melody2_003.mid,,
+song_004,c,minor,harmonic,128,4/4,hypnotic,0.8,worakls,Cm-Cm-Cm-Cm-G-G-Gm-Gm,techno_melody1_004.mid,,techno_arpeggio1_004.mid,techno_bass_004.mid,,,
+song_005,c,major,natural,128,4/4,euphoric,0.8,worakls,C-G-Am-Am,techno_melody1_005.mid,techno_arpeggio1_005.mid,,techno_bass_005.mid,,,

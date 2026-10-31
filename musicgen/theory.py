@@ -20,6 +20,7 @@ LYDIAN = [0, 2, 4, 6, 7, 9, 11]
 NAT_MINOR = [0, 2, 3, 5, 7, 8, 10]
 HARM_MINOR = [0, 2, 3, 5, 7, 8, 11]
 DORIAN = [0, 2, 3, 5, 7, 9, 10]
+PHRYGIAN = [0, 1, 3, 5, 7, 8, 10]
 
 # Values offered in the UI, spelled the way the Google Sheet already uses them.
 VARIATIONS = {"major": ["natural", "mixolidian"], "minor": ["natural", "harmonic"]}
@@ -35,6 +36,7 @@ SCALES = {
     ("minor", "aeolian"): NAT_MINOR,
     ("minor", "harmonic"): HARM_MINOR,
     ("minor", "dorian"): DORIAN,
+    ("minor", "phrygian"): PHRYGIAN,
 }
 
 KEY_RE = re.compile(r"^([a-g])([#b]?)$")
@@ -198,6 +200,7 @@ def build_progression_library(metadata_rows):
                 "mode": str(row.get("mode", "")).strip().lower(),
                 "degrees": degrees,
                 "sizes": sizes,
+                "qualities": [_quality_or_none(c) for c in chords],
                 "variation": str(row.get("variation", "")).strip().lower(),
                 "source": str(row.get("Name", "")),
             })
@@ -406,3 +409,68 @@ def size_for_voicing(root_pc, scale, pcs):
 
 def bigger_size(a, b):
     return a if _SIZE_RANK.index(a) >= _SIZE_RANK.index(b) else b
+
+
+
+# ---------------------------------------------------------------- original chord quality (techno)
+def _quality_or_none(label):
+    try:
+        return parse_chord(label)["quality"]
+    except ValueError:
+        return None
+
+
+def scale_for_chord(scale, chord_pcs):
+    """The scale with its notes adjusted so every chord tone belongs to it.
+
+    A chord tone outside the scale replaces the scale note a semitone away
+    (C# replaces C for an A major chord in D natural minor), so the order of
+    the 7 degrees is kept. Used when chords keep their original quality: v and V
+    in the same song, each with its own 3rd."""
+    out = list(scale)
+    for pc in sorted(chord_pcs):
+        if pc in out:
+            continue
+        for neighbour in ((pc - 1) % 12, (pc + 1) % 12):
+            if neighbour in out and neighbour not in chord_pcs:
+                out[out.index(neighbour)] = pc
+                break
+    return out
+
+
+def realize_progression_orig(template, scale, length_bars, variation="natural", mode=None):
+    """Keep each chord's ORIGINAL quality (m, mayor, 7…) on the new key's degree.
+
+    -> (labels, roots, pcs, bar_scales) looped to length_bars. Unlike
+    realize_progression_ext, a minor v and a major V of the same song both
+    survive. The base scale for harmonic minor is the natural minor; the raised
+    7th appears only where a chord asks for it. A quality that does not fit the
+    new key (a major tonic from a major song placed in minor, a major VI in
+    dorian…) is rebuilt from the scale instead; only the minor key's raised
+    7th (V major next to v minor) is accepted on top of the scale."""
+    base = chord_scale(scale, variation, 0)
+    fits = set(base)  # natural minor in harmonic minor: the raised 7th only on V / vii
+    raised7 = (base[0] + 11) % 12 if str(mode).strip().lower() == "minor" else None
+    flats = uses_flats(base)
+    labels, roots, pcs, bscales = [], [], [], []
+    qualities = template.get("qualities") or [None] * len(template["degrees"])
+    for deg, q in zip(template["degrees"], qualities):
+        d = ROMAN.index(deg)
+        root = scale[d]
+        lab = None
+        if q is not None:
+            lab = pc_name(root, flats and (root in base)) + q
+            chord_pcs = parse_chord(lab)["pcs"]
+            allowed = fits | ({raised7} if raised7 is not None and d in (4, 6) else set())
+            if not chord_pcs <= allowed:
+                lab = None
+        if lab is None:  # unknown label or quality foreign to the new key: triad of the scale
+            lab, chord_pcs = stacked_chord(root, base if d not in (4, 6) else chord_scale(scale, variation, d),
+                                           "triad", flats, base)
+        labels.append(lab)
+        roots.append(root)
+        pcs.append(chord_pcs)
+        bscales.append(scale_for_chord(base, chord_pcs))
+    n = len(roots)
+    return ([labels[i % n] for i in range(length_bars)], [roots[i % n] for i in range(length_bars)],
+            [pcs[i % n] for i in range(length_bars)], [bscales[i % n] for i in range(length_bars)])

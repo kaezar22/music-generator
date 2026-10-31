@@ -15,7 +15,15 @@ TIMBRES = {
     "arpeggio": ([1.0, 0.0, 0.30, 0.0, 0.12], 0.004, 0.35, 0.08),
     "bass":     ([1.0, 0.25, 0.05], 0.03, None, 0.12),
     "harmony":  ([1.0, 0.2, 0.08], 0.25, None, 0.4),
+    # second lines: a softer lead and a brighter, shorter arpeggio so they stand apart
+    "melody2":  ([1.0, 0.15, 0.25, 0.0, 0.05], 0.02, 1.2, 0.2),
+    "arpeggio2": ([1.0, 0.4, 0.0, 0.15], 0.002, 0.2, 0.06),
 }
+
+
+def timbre(part):
+    """Timbre of a part; unknown numbered parts use their base part's timbre."""
+    return TIMBRES.get(part) or TIMBRES[part.rstrip("0123456789")]
 
 
 def midi_to_hz(p):
@@ -23,7 +31,7 @@ def midi_to_hz(p):
 
 
 def render_part(events, bpm, part, total_beats):
-    harmonics, attack, decay, release = TIMBRES[part]
+    harmonics, attack, decay, release = timbre(part)
     sec_per_beat = 60.0 / bpm
     n_total = int((total_beats * sec_per_beat + 1.0) * SR)
     out = np.zeros(n_total, dtype=np.float32)

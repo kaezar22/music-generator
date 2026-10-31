@@ -16,46 +16,19 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from musicgen import originality, patterns, pipeline, sheets, synth, theory
+from musicgen import originality, patterns, pipeline, sheets, styles, synth, techno_melody, theory
 from musicgen.melody import MelodyModel
-from musicgen.moods import MOOD_GROUPS, mood_group
+from musicgen.moods import GROUP_LABELS, grouper
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 SPREADSHEET_ID = "1z_njzCTDkI59D6dggXbFxONousXaHWe1wGoilxFo-Pc"
 
-STYLES = {
-    "ambient": {
-        "label": "Ambient", "library": os.path.join(APP_DIR, "library"),
-        "models": os.path.join(APP_DIR, "models"),
-        "gid_secret": "worksheet_gid", "gid_default": 1183065346,
-        "melody_tab": sheets.MELODY_TAB, "pattern_parts": patterns.PARTS,
-        "keys": theory.NOTE_NAMES,
-        "variations": {"major": ["natural", "mixolidian"], "minor": ["natural", "harmonic"]},
-        "moods": ["quiet", "melancolic", "cinematic", "optimistic", "flamenco"],
-        "folder_hint": "AI_MUSIC_Project",
-    },
-    "lofi": {
-        "label": "Lo-fi", "library": os.path.join(APP_DIR, "library_lofi"),
-        "models": os.path.join(APP_DIR, "models", "lofi"),
-        "gid_secret": "lofi_worksheet_gid", "gid_default": 913708363,
-        "melody_tab": sheets.LOFI_MELODY_TAB, "pattern_parts": patterns.LOFI_PARTS,
-        "keys": ["C", "C#", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"],
-        "variations": {"major": ["natural", "lydian", "mixolydian"], "minor": ["natural", "dorian", "harmonic"]},
-        "moods": [m for g in MOOD_GROUPS.values() for m in g if m not in
-                  ("quiet", "melancolic", "cinematic", "flamenco")],
-        "folder_hint": "lofi_songs",
-    },
-}
-# BPM / energy sugeridos según el grupo del mood (lo-fi)
-GROUP_DEFAULTS = {"calma": (76, 0.35), "melancolico": (72, 0.35), "luminoso": (84, 0.5)}
-GROUP_LABELS = {"calma": "calma", "melancolico": "melancólico", "luminoso": "luminoso"}
+STYLES = styles.STYLES
 OCTAVES = {-1: "Más grave", 0: "Normal (≈ C5)", 1: "Más aguda"}
 
 LENGTHS = [8, 16, 32, 64]
-PART_LABELS = {"melody": "Melodía", "arpeggio": "Arpegio", "bass": "Bajo", "harmony": "Armonía"}
-PART_COLORS = {"melody": "#2a78d6", "arpeggio": "#eb6834", "bass": "#1baf7a", "harmony": "#a3a29c"}
-DEFAULT_VOLUMES = {"ambient": {"melody": 1.0, "arpeggio": 0.45, "bass": 0.6, "harmony": 0.0},
-                   "lofi": {"melody": 1.0, "arpeggio": 0.4, "bass": 0.6, "harmony": 0.45}}
+PART_LABELS = styles.PART_LABELS
+PART_COLORS = styles.PART_COLORS
 VERDICT_ICON = {"ORIGINAL": "✅", "SIMILAR": "⚠️", "COPIA": "⛔"}
 
 
@@ -98,7 +71,9 @@ def read_csv_rows(path):
 
 @st.cache_resource
 def get_model(style):
-    return MelodyModel(STYLES[style]["models"])
+    """LSTM of the style, or None for styles whose melodies come from templates (techno)."""
+    models = STYLES[style]["models"]
+    return MelodyModel(models) if models else None
 
 
 @st.cache_resource
@@ -140,7 +115,11 @@ def get_pattern_library(style):
     """Patterns extracted from the songs bundled with the app for this style."""
     cfg = STYLES[style]
     rows = read_csv_rows(os.path.join(cfg["library"], "metadata.csv"))
-    return patterns.load_patterns(cfg["library"], rows, parts=cfg["pattern_parts"])
+    lib = patterns.load_patterns(cfg["library"], rows, parts=cfg["pattern_parts"], **cfg["pattern_options"])
+    if cfg.get("melody_source") == "templates":
+        lib["melody_templates"] = techno_melody.load_templates(
+            cfg["library"], rows, cfg["melody_columns"], cfg["pattern_options"].get("read_options"))
+    return lib
 
 
 def metadata_by_num(rows):
@@ -154,7 +133,18 @@ def metadata_by_num(rows):
 
 @st.cache_data(show_spinner=False)
 def bundled_library(style, meta_rows):
-    return originality.load_folder_library(STYLES[style]["library"], metadata_by_num(meta_rows))
+    cfg = STYLES[style]
+    if cfg.get("melody_columns"):  # techno: every melody column (melody, melody2, melody3)
+        rows = read_csv_rows(os.path.join(cfg["library"], "metadata.csv"))
+        return originality.load_column_library(cfg["library"], rows, cfg["melody_columns"], metadata_by_num(meta_rows),
+                                               cfg["pattern_options"].get("read_options"))
+    return originality.load_folder_library(cfg["library"], metadata_by_num(meta_rows))
+
+
+def song_num_of(key):
+    """'song_021' or 'song_021/melody2' -> 21."""
+    m = re.match(r"song_(\d+)", key)
+    return int(m.group(1)) if m else None
 
 
 @st.cache_data(show_spinner=False)
@@ -196,10 +186,10 @@ def on_style_change():
 
 
 st.title("🎵 MusicAI — generador de canciones")
-style = st.radio("Estilo", list(STYLES), horizontal=True, key="style", on_change=on_style_change,
+style = st.radio("Estilo", [k for k, v in STYLES.items() if v["enabled"]], horizontal=True, key="style",
+                 on_change=on_style_change,
                  format_func=lambda s: STYLES[s]["label"])
 cfg = STYLES[style]
-LOFI = style == "lofi"
 
 meta_rows, meta_source = load_metadata(style)
 progression_library = theory.build_progression_library(meta_rows)
@@ -230,7 +220,7 @@ with st.sidebar:
                          help="Así quedan en la biblioteca de forma permanente: " + ", ".join(to_store)):
                 meta_num = metadata_by_num(meta_rows)
                 for k in to_store:
-                    num = int(k.split("_")[1])
+                    num = song_num_of(k)
                     row = meta_num.get(num, {})
                     sheets.save_melody(get_worksheet(style), f"{num:03d}", row.get("Key", ""), row.get("mode", ""),
                                        row.get("variation", ""), extra[k]["notes"], now_str(),
@@ -238,14 +228,14 @@ with st.sidebar:
                 load_sheet_melodies.clear()
                 st.rerun()
     own_library = dict(library)
-    if LOFI:  # las melodías lo-fi también se comparan contra las ambient
-        amb_meta, _ = load_metadata("ambient")
-        amb_lib, _, _, _ = style_library("ambient", amb_meta)
-        library.update({f"ambient {k}": v for k, v in amb_lib.items()})
-        st.metric("Melodías para comparar", len(library),
-                  help=f"{len(own_library)} lo-fi + {len(library) - len(own_library)} ambient")
-    else:
-        st.metric("Melodías para comparar", len(library))
+    breakdown = [f"{len(own_library)} {cfg['label'].lower()}"]
+    for other in cfg["compare_with"]:  # p. ej. las melodías lo-fi también se comparan contra las ambient
+        other_meta, _ = load_metadata(other)
+        other_lib, _, _, _ = style_library(other, other_meta)
+        library.update({f"{other} {k}": v for k, v in other_lib.items()})
+        breakdown.append(f"{len(other_lib)} {STYLES[other]['label'].lower()}")
+    st.metric("Melodías para comparar", len(library),
+              help=" + ".join(breakdown) if cfg["compare_with"] else None)
     registered = {f"song_{n:03d}" for n in metadata_by_num(meta_rows)}
     missing = sorted(registered - set(own_library))
     if missing:
@@ -278,7 +268,7 @@ with st.sidebar:
 # ----------------------------------------------------------------- helpers
 def used_numbers():
     nums = {sheets.song_number(r.get("Name")) for r in meta_rows}
-    nums |= {int(k.split("_")[1]) for k in own_library}
+    nums |= {song_num_of(k) for k in own_library}
     return {n for n in nums if n is not None}
 
 
@@ -302,7 +292,7 @@ def run_generation(params, retry_until_ok, max_tries=10):
         seed = pysecrets.randbits(32)
         song = pipeline.generate_song(model, progression_library, seed=seed,
                                       pattern_library=pattern_library, style=style, **params)
-        report = originality.check_melody(song["events"]["melody"], song["scale"], library)
+        report = originality.check_song(song, library, styles.melody_parts(cfg))
         if report["verdict"] != "COPIA":
             break
     song["attempts"] = attempt
@@ -314,9 +304,16 @@ def pattern_name(pid):
     return "básico" if pid == patterns.BASIC else f"estilo {pid}"
 
 
+def display_parts(song):
+    """Parts of the song in display order (legend, sliders): melodies first, harmony last."""
+    parts = pipeline.song_parts(song)
+    return [p for p in styles.PART_LABELS if p in parts]
+
+
 def piano_roll(song):
     rows = []
-    for part in ("harmony", "bass", "arpeggio", "melody"):
+    shown = display_parts(song)
+    for part in reversed(shown):  # harmony drawn first, melody on top
         for start, pitch, dur in song["events"][part]:
             rows.append({
                 "Parte": PART_LABELS[part],
@@ -328,9 +325,9 @@ def piano_roll(song):
                 "Duración (beats)": round(dur, 2),
             })
     df = pd.DataFrame(rows)
-    order = [PART_LABELS[p] for p in ("melody", "arpeggio", "bass", "harmony")]
-    color = alt.Color("Parte:N", scale=alt.Scale(domain=order, range=[PART_COLORS[p] for p in
-                      ("melody", "arpeggio", "bass", "harmony")]), legend=alt.Legend(orient="top", title=None))
+    order = [PART_LABELS[p] for p in shown]
+    color = alt.Color("Parte:N", scale=alt.Scale(domain=order, range=[PART_COLORS[p] for p in shown]),
+                      legend=alt.Legend(orient="top", title=None))
     chart = alt.Chart(df).mark_rect(cornerRadius=2).encode(
         x=alt.X("inicio:Q", title="Compás", scale=alt.Scale(domain=[1, song["length_bars"] + 1], nice=False),
                 axis=alt.Axis(tickMinStep=1, grid=False)),
@@ -344,11 +341,12 @@ def piano_roll(song):
     return chart
 
 
-def suggest_bpm_energy():
-    """Al cambiar el mood (lo-fi), propone BPM y energy según su grupo."""
-    group = mood_group(ss.get("mood_lofi", ""))
-    if group in GROUP_DEFAULTS:
-        ss["bpm_lofi"], ss["energy_lofi"] = GROUP_DEFAULTS[group]
+def suggest_bpm_energy(style_name):
+    """Al cambiar el mood, propone BPM y energy según su grupo (estilos con grupo de mood)."""
+    defaults = STYLES[style_name]["group_defaults"]
+    group = grouper(STYLES[style_name]["mood_groups"])(ss.get(f"mood_{style_name}", ""))
+    if group in defaults:
+        ss[f"bpm_{style_name}"], ss[f"energy_{style_name}"] = defaults[group]
 
 
 # ----------------------------------------------------------------- main UI
@@ -362,17 +360,18 @@ with c1:
     variation = st.selectbox("Variación", cfg["variations"][mode], key=f"variation_{style}_{mode}")
 with c2:
     st.subheader("Carácter")
+    grouped = cfg["mood_groups"]
+    mood_group = grouper(grouped) if grouped else (lambda m: None)
     moods = sorted(set(cfg["moods"]) | {p["mood"] for p in progression_library if p["mood"]},
-                   key=lambda m: (mood_group(m) or "", m) if LOFI else m)
-    if LOFI:
-        ss.setdefault("mood_lofi", "chill" if "chill" in moods else moods[0])
-        mood = st.selectbox("Mood", moods, key="mood_lofi", on_change=suggest_bpm_energy,
+                   key=lambda m: (mood_group(m) or "", m) if grouped else m)
+    ss.setdefault(f"mood_{style}", cfg["default_mood"] if cfg["default_mood"] in moods else moods[0])
+    if grouped:
+        mood = st.selectbox("Mood", moods, key=f"mood_{style}", on_change=suggest_bpm_energy, args=(style,),
                             format_func=lambda m: f"{m} ({GROUP_LABELS.get(mood_group(m), 'otro')})",
                             help="La progresión y los patrones se eligen entre las canciones del mismo grupo "
-                                 "(calma / melancólico / luminoso).")
+                                 f"({' / '.join(GROUP_LABELS.get(g, g) for g in grouped)}).")
     else:
-        mood = st.selectbox("Mood", moods, index=moods.index("quiet") if "quiet" in moods else 0,
-                            key="mood_ambient",
+        mood = st.selectbox("Mood", moods, key=f"mood_{style}",
                             help="Elige la progresión de acordes entre las canciones con ese mood.")
     length_bars = st.select_slider("Longitud (compases)", LENGTHS, value=16, key=f"len_{style}")
     temperature = st.slider("Temperatura", 0.3, 1.5, 0.9, 0.05, key=f"temp_{style}",
@@ -387,24 +386,26 @@ with c3:
     tag_input = st.text_input("Nombre del registro", key=tag_key,
                               help="Formato song_021. Se sugiere el siguiente número libre de este estilo.")
     tag_num, tag_error = validate_tag(tag_input)
-    prefix = "lofi_" if LOFI else ""
+    prefix = cfg["file_prefix"]
     if tag_error:
         st.error(tag_error)
     else:
-        shown = f"song{tag_num:03d}" if LOFI else f"song {tag_num}"
+        shown = cfg["name_format"].format(n=tag_num)
         st.caption(f"Se guardará como **{shown}** · archivos `{prefix}melody_{tag_num:03d}.mid`, …")
     retry = st.checkbox("Reintentar solo si sale COPIA (hasta 10 veces)", value=True, key=f"retry_{style}")
-    if LOFI:
+    if cfg["bpm_range"]:
+        lo_bpm, hi_bpm = cfg["bpm_range"]
+        lo_en, hi_en = cfg["energy_range"]
+        fallback = ((lo_bpm + hi_bpm) // 2, round((lo_en + hi_en) / 2, 2))
         g = mood_group(mood)
-        ss.setdefault("bpm_lofi", GROUP_DEFAULTS.get(g, (80, 0.4))[0])
-        ss.setdefault("energy_lofi", GROUP_DEFAULTS.get(g, (80, 0.4))[1])
-        bpm = st.slider("BPM", 70, 90, key="bpm_lofi", help="Sugerido según el mood; puedes cambiarlo.")
-        energy = st.slider("Energy", 0.25, 0.6, step=0.05, key="energy_lofi",
+        ss.setdefault(f"bpm_{style}", cfg["group_defaults"].get(g, fallback)[0])
+        ss.setdefault(f"energy_{style}", cfg["group_defaults"].get(g, fallback)[1])
+        bpm = st.slider("BPM", lo_bpm, hi_bpm, key=f"bpm_{style}", help="Sugerido según el mood; puedes cambiarlo.")
+        energy = st.slider("Energy", lo_en, hi_en, step=0.05, key=f"energy_{style}",
                            help="Sugerida según el mood; puedes cambiarla.")
-        st.caption("4/4 · style lofi · MIDI rectos (el swing lo pones en tu DAW)")
     else:
         bpm = energy = None
-        st.caption(f"Fijos: {pipeline.BPM} bpm · {pipeline.TIME_SIG} · energy {pipeline.ENERGY} · {pipeline.STYLE}")
+    st.caption(cfg["fixed_caption"])
 
 
 def pattern_options(part):
@@ -436,14 +437,30 @@ bass_choice = a2.selectbox("Patrón de bajo", pattern_options("bass"), format_fu
 params = dict(key=key, mode=mode, variation=variation, mood=mood,
               length_bars=length_bars, temperature=temperature,
               arp_choice=arp_choice, bass_choice=bass_choice)
-if LOFI:
-    harmony_choice = a3.selectbox("Comping de armonía", pattern_options("harmony"),
-                                  format_func=pattern_label("harmony"), key="harm_lofi",
-                                  help="Ritmo y voicings de la armonía de tus canciones lo-fi, re-armados "
-                                       "sobre los acordes nuevos.")
-    octave = a3.radio("Registro de la melodía", list(OCTAVES), index=1, horizontal=True,
-                      format_func=OCTAVES.get, key="octave_lofi")
-    params.update(harmony_choice=harmony_choice, octave=octave, bpm=bpm, energy=energy)
+if cfg["harmony"] == "patterns":
+    params["harmony_choice"] = a3.selectbox(
+        "Comping de armonía", pattern_options("harmony"), format_func=pattern_label("harmony"),
+        key=f"harm_{style}",
+        help=f"Ritmo y voicings de la armonía de tus canciones {cfg['label'].lower()}, re-armados "
+             "sobre los acordes nuevos.")
+if cfg["melody_center"] is not None:
+    params["octave"] = a3.radio("Registro de la melodía", list(OCTAVES), index=1, horizontal=True,
+                                format_func=OCTAVES.get, key=f"octave_{style}")
+if cfg["bpm_range"]:
+    params.update(bpm=bpm, energy=energy)
+if cfg.get("melody_source") == "templates":
+    hooks = [t for t in pattern_library.get("melody_templates", []) if t["kind"] == "hook"]
+    params["lead_choice"] = a1.selectbox(
+        "Ritmo del lead", ["random"] + [t["id"] for t in hooks], key=f"lead_{style}",
+        format_func=lambda o: (f"Aleatorio (entre {len(hooks)} ganchos tuyos)" if o == "random" else
+                               f"Ritmo de {o} · {next(t['notes_per_bar'] for t in hooks if t['id'] == o):.1f} notas por compás"),
+        help="El lead toma solo el RITMO de una de tus melodías rítmicas; las notas son nuevas.")
+if "arpeggio2" in cfg["parts"]:
+    params["arp2_choice"] = a2.selectbox(
+        "Arpegio 2", ["auto"] + [p["id"] for p in pattern_library.get("arpeggio", [])], key=f"arp2_{style}",
+        format_func=lambda o: "Complementario (otro registro y densidad)" if o == "auto" else f"Estilo {o}",
+        help="Segundo arpegio con otro papel: si el primero viene de una canción con dos arpegios (002), "
+             "se usa su pareja; si no, el más distinto en registro y densidad.")
 
 b1, b2, _ = st.columns([1, 1, 4])
 if b1.button("🎼 Generar", type="primary", width="stretch"):
@@ -468,19 +485,24 @@ if changed:
                "con los parámetros de abajo. Presiona Regenerar para aplicar los nuevos.")
 s1, s2 = st.columns([3, 2])
 with s1:
-    extra_title = f" · {song['bpm']:g} bpm" if LOFI else ""
+    extra_title = f" · {song['bpm']:g} bpm" if cfg["bpm_range"] else ""
     st.subheader(f"{song['key']} {'mayor' if song['mode'] == 'major' else 'menor'} "
                  f"({song['variation']}) · {song['mood']} · {song['length_bars']} compases{extra_title}")
     st.markdown("**Acordes:** " + "  →  ".join(f"`{c}`" for c in song["chords"]))
     accomp = f"arpegio: {pattern_name(song['arp_pattern'])} · bajo: {pattern_name(song['bass_pattern'])}"
     if song.get("harmony_pattern"):
         accomp += f" · comping: {pattern_name(song['harmony_pattern'])}"
+    if song.get("arp2_pattern"):
+        accomp += f" · arpegio 2: {pattern_name(song['arp2_pattern'])}"
+    if song.get("lead_template"):
+        accomp += f" · ritmo del lead: {song['lead_template']} · contramelodía: {song['counter_template']}"
     st.caption(f"Progresión {'-'.join(song['template_degrees'])} tomada de {song['template_source']} · "
                f"{accomp} · temperatura {song['temperature']} · semilla {song['seed']}"
                + (f" · {song['attempts']} intentos" if song.get("attempts", 1) > 1 else ""))
 with s2:
     v = report["verdict"]
-    msg = f"{VERDICT_ICON[v]} **Melodía {v}** — {report['reason']}"
+    which = "" if report.get("part", "melody") == "melody" else f" ({PART_LABELS[report['part']].lower()})"
+    msg = f"{VERDICT_ICON[v]} **Melodía{which} {v}** — {report['reason']}"
     if v != "ORIGINAL" and report["closest"]:
         msg += f" (vs **{report['closest']}**)"
     {"ORIGINAL": st.success, "SIMILAR": st.warning, "COPIA": st.error}[v](msg)
@@ -499,13 +521,14 @@ st.subheader("Escuchar")
 if "tracks" not in ss:
     with st.spinner("Sintetizando audio…"):
         ss.tracks = {p: synth.render_part(song["events"][p], song.get("bpm", pipeline.BPM), p, song["total_beats"])
-                     for p in pipeline.PARTS}
-vcols = st.columns(4)
+                     for p in pipeline.song_parts(song)}
+shown_parts = display_parts(song)
+vcols = st.columns(len(shown_parts))
 volumes = {}
-for col, part in zip(vcols, ("melody", "arpeggio", "bass", "harmony")):
+song_defaults = STYLES[song.get("style", "ambient")]["default_volumes"]
+for col, part in zip(vcols, shown_parts):
     volumes[part] = col.slider(f"Volumen {PART_LABELS[part].lower()}", 0.0, 1.0,
-                               DEFAULT_VOLUMES[song.get("style", "ambient")][part], 0.05,
-                               key=f"vol_{style}_{part}")
+                               song_defaults.get(part, 0.5), 0.05, key=f"vol_{style}_{part}")
 if any(volumes.values()):
     st.audio(synth.mix_to_wav(ss.tracks, volumes), format="audio/wav")
 else:
@@ -547,14 +570,16 @@ else:
             st.error(f"No se pudo escribir en el Sheet: {e}")
         else:
             ss.saved = {"tag": tag, "row": row, "name": record["Name"], "zip": pipeline.song_zip(song, tag)}
-            try:
-                sheets.save_melody(ws, tag, song["key"], song["mode"], song["variation"],
-                                   song["events"]["melody"], now_str(), tab=cfg["melody_tab"])
-            except Exception as e:  # noqa: BLE001
-                ss.saved["melody_error"] = str(e)
+            for part in styles.melody_parts(cfg):  # lead (and counter-line in techno)
+                mtag = tag if part == "melody" else f"{tag}/{part}"
+                try:
+                    sheets.save_melody(ws, mtag, song["key"], song["mode"], song["variation"],
+                                       song["events"][part], now_str(), tab=cfg["melody_tab"])
+                except Exception as e:  # noqa: BLE001
+                    ss.saved["melody_error"] = str(e)
+                ss.saved_songs.setdefault(style, {})[f"song_{mtag}"] = originality.make_entry(
+                    f"song_{mtag}", song["events"][part], song["scale"])
             load_sheet_melodies.clear()
-            ss.saved_songs.setdefault(style, {})[f"song_{tag}"] = originality.make_entry(
-                f"song_{tag}", song["events"]["melody"], song["scale"])
             ss[f"next_tag_{style}"] = f"song_{tag_num + 1:03d}"
             load_metadata.clear()
             st.rerun()

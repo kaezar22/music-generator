@@ -116,6 +116,8 @@ def load_zip_library(zip_bytes, metadata_by_num):
             base = name.rsplit("/", 1)[-1].lower()
             if base.startswith("lofi_"):
                 base = base[5:]
+            elif base.startswith("techno_"):
+                base = base[7:]
             if info.is_dir() or not base.startswith("melody") or not base.endswith((".mid", ".midi")):
                 continue
             m = SONG_RE.search(name) or re.search(r"melody_(\d+)", base)
@@ -178,3 +180,36 @@ def check_melody(notes, scale, library):
     top = rows[0]
     return {"verdict": top["verdict"], "reason": top["why"], "closest": top["song"],
             "rows": rows, "n_notes": len(notes)}
+
+
+def check_song(song, library, melody_parts=("melody",)):
+    """Worst verdict among the song's melodic lines (lead, counter-line…).
+    With a single melody this is exactly check_melody's report."""
+    worst = None
+    for part in melody_parts:
+        rep = check_melody(song["events"][part], song["scale"], library)
+        rep["part"] = part
+        if worst is None or RANK[rep["verdict"]] > RANK[worst["verdict"]]:
+            worst = rep
+    return worst
+
+
+def load_column_library(root, metadata_rows, columns, metadata_by_num, read_options=None):
+    """{name: entry} from the melody files named in the metadata columns
+    (techno: melody, melody2, melody3). Names: song_001, song_001/melody2…"""
+    lib = {}
+    for row in metadata_rows:
+        m = re.search(r"(\d+)\s*$", str(row.get("Name", "")))
+        if not m:
+            continue
+        num = int(m.group(1))
+        folder = os.path.join(root, f"song_{num:03d}")
+        for col in columns:
+            fname = str(row.get(col, "") or "").strip()
+            path = os.path.join(folder, fname)
+            if not fname or not os.path.isfile(path):
+                continue
+            name = f"song_{num:03d}" if col == "melody" else f"song_{num:03d}/{col}"
+            notes = read_notes(path, top_voice_only=True, **(read_options or {}))
+            lib[name] = make_entry(name, notes, _scale_for(num, metadata_by_num))
+    return lib

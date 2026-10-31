@@ -18,3 +18,22 @@ _LOOKUP = {m: g for g, labels in MOOD_GROUPS.items() for m in labels}
 def mood_group(label):
     """'Nostalgic ' -> 'melancolico'. Unknown labels return None."""
     return _LOOKUP.get(str(label).strip().lower())
+
+
+# Melodic techno (7 labels in 3 groups, see claude/convenciones_composicion_melodic_techno.md)
+TECHNO_MOOD_GROUPS = {
+    "oscuro": ["dark", "hypnotic", "mysterious"],
+    "emotivo": ["emotional", "melancholic"],
+    "euforico": ["euphoric", "epic"],
+}
+
+GROUP_LABELS = {"calma": "calma", "melancolico": "melancólico", "luminoso": "luminoso",
+                "oscuro": "oscuro", "emotivo": "emotivo", "euforico": "eufórico"}
+
+
+def grouper(groups):
+    """mood -> group function for a style's own groups (None if unknown)."""
+    if groups is MOOD_GROUPS:
+        return mood_group
+    lookup = {m: g for g, labels in groups.items() for m in labels}
+    return lambda label: lookup.get(str(label).strip().lower())

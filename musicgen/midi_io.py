@@ -36,11 +36,20 @@ def events_to_midi_bytes(events, bpm, velocity=100, program=None):
     return buf.getvalue()
 
 
-def read_notes(source, top_voice_only=True):
+def read_notes(source, top_voice_only=True, zero_length=STEP, min_dur=None, quantize=None,
+               monophonic=False):
     """[(onset_beats, pitch, dur_beats)] from a path, bytes or file-like.
 
-    With top_voice_only the highest note of each 16th-grid onset is kept
-    (melody view)."""
+    top_voice_only  keep the highest note of each 16th-grid onset (melody view).
+    zero_length     duration given to notes whose note_on and note_off share a
+                    tick (FL Studio exports some notes that way); default 1/16.
+                    Before, those notes stayed open until the next note_off of
+                    the same pitch, or were lost.
+    min_dur         drop shorter notes (beats), e.g. 1/8 to remove the 8-tick
+                    re-triggers of a live recording. Off by default.
+    quantize        grid in beats (0.25 = 1/16) for onsets and durations. Off by default.
+    monophonic      trim each note so it ends where the next one starts. Off by default.
+    """
     if isinstance(source, (bytes, bytearray)):
         mid = MidiFile(file=io.BytesIO(source))
     elif hasattr(source, "read"):
@@ -58,18 +67,32 @@ def read_notes(source, top_voice_only=True):
                 events.append((t, 1 if on else 0, msg.note))
     events.sort()
     open_notes, notes = {}, []
+    orphan_offs = {}  # (tick, pitch) -> note_offs that closed nothing (zero-length notes)
     for t, on, p in events:
         if on:
-            open_notes.setdefault(p, []).append(t)
+            if orphan_offs.get((t, p)):
+                orphan_offs[(t, p)] -= 1
+                notes.append((t / tpb, p, zero_length))
+            else:
+                open_notes.setdefault(p, []).append(t)
         elif open_notes.get(p):
             s = open_notes[p].pop(0)
             notes.append((s / tpb, p, (t - s) / tpb))
+        else:
+            orphan_offs[(t, p)] = orphan_offs.get((t, p), 0) + 1
+    if min_dur:
+        notes = [n for n in notes if n[2] >= min_dur]
+    if quantize:
+        notes = [(round(o / quantize) * quantize, p, max(1, round(d / quantize)) * quantize) for o, p, d in notes]
     notes.sort()
-    if not top_voice_only:
-        return notes
-    by_onset = {}
-    for on, p, d in notes:
-        q = round(on / STEP)
-        if q not in by_onset or p > by_onset[q][1]:
-            by_onset[q] = (q * STEP, p, d)
-    return [by_onset[q] for q in sorted(by_onset)]
+    if top_voice_only:
+        by_onset = {}
+        for on, p, d in notes:
+            q = round(on / STEP)
+            if q not in by_onset or p > by_onset[q][1]:
+                by_onset[q] = (q * STEP, p, d)
+        notes = [by_onset[q] for q in sorted(by_onset)]
+    if monophonic:
+        notes = [(o, p, min(d, notes[i + 1][0] - o) if i + 1 < len(notes) and notes[i + 1][0] > o else d)
+                 for i, (o, p, d) in enumerate(notes)]
+    return notes
