@@ -134,7 +134,9 @@ STYLES = {
         "energy_range": (0.6, 0.95), "fixed_energy": None,
         "mood_groups": TECHNO_MOOD_GROUPS,
         "group_defaults": {"oscuro": (126, 0.8), "emotivo": (124, 0.7), "euforico": (128, 0.85)},
-        "sheet_style": "worakls",
+        "sheet_style": "worakls",               # used only when no sub-style is chosen
+        "substyles": True,                       # the Sheet's `style` column holds top, balad, DnB…
+        "default_substyle": "top",
         "file_prefix": "techno_",
         "name_format": "song_{n:03d}",
         "keys": ["C", "C#", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"],
@@ -143,7 +145,7 @@ STYLES = {
         "default_mood": "hypnotic",
         "default_volumes": {"melody": 1.0, "melody2": 0.6, "arpeggio": 0.5, "arpeggio2": 0.4,
                             "bass": 0.7, "harmony": 0.45},
-        "fixed_caption": "4/4 · style worakls · MIDI rectos",
+        "fixed_caption": "4/4 · MIDI rectos (cuantizados a 1/16, sin swing: el groove lo pones en tu DAW)",
     },
 }
 

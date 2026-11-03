@@ -13,6 +13,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import altair as alt
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -121,6 +122,9 @@ def get_pattern_library(style):
     if cfg.get("melody_source") in ("templates", "hybrid"):
         lib["melody_templates"] = techno_melody.load_templates(
             cfg["library"], rows, cfg["melody_columns"], cfg["pattern_options"].get("read_options"))
+    if cfg.get("substyles"):
+        lib["substyles"] = {f"song_{n:03d}": str(r.get("style", "")).strip().lower()
+                            for n, r in metadata_by_num(rows).items()}
     return lib
 
 
@@ -343,12 +347,49 @@ def piano_roll(song):
     return chart
 
 
-def suggest_bpm_energy(style_name):
-    """Al cambiar el mood, propone BPM y energy según su grupo (estilos con grupo de mood)."""
-    defaults = STYLES[style_name]["group_defaults"]
-    group = grouper(STYLES[style_name]["mood_groups"])(ss.get(f"mood_{style_name}", ""))
+def substyle_options(rows):
+    """Sub-styles written in the Sheet's `style` column (techno: top, balad, DnB…),
+    with the user's spelling, in order of appearance."""
+    seen = {}
+    for r in rows:
+        v = str(r.get("style", "")).strip()
+        if v and v.lower() not in seen and v.lower() != STYLES[style]["sheet_style"]:
+            seen[v.lower()] = v
+    return list(seen.values())
+
+
+def substyle_tempo(rows, sub):
+    """Median BPM / energy of the songs of a sub-style, or None."""
+    vals = []
+    for r in rows:
+        if str(r.get("style", "")).strip().lower() == str(sub).lower():
+            try:
+                vals.append((float(r["bpm"]), float(r["energy"])))
+            except (KeyError, TypeError, ValueError):
+                pass
+    if not vals:
+        return None
+    lo_b, hi_b = STYLES[style]["bpm_range"]
+    lo_e, hi_e = STYLES[style]["energy_range"]
+    bpm = int(min(hi_b, max(lo_b, np.median([b for b, _ in vals]))))
+    energy = round(min(hi_e, max(lo_e, float(np.median([e for _, e in vals])))) * 20) / 20
+    return bpm, energy
+
+
+def suggest_bpm_energy(style_name, rows=None):
+    """Al cambiar el mood o el subestilo, propone BPM y energy: el BPM del subestilo
+    (DnB 140…) si lo hay, si no el del grupo de mood; la energy, según el grupo de mood."""
+    cfg_ = STYLES[style_name]
+    defaults = cfg_["group_defaults"]
+    group = grouper(cfg_["mood_groups"])(ss.get(f"mood_{style_name}", ""))
     if group in defaults:
         ss[f"bpm_{style_name}"], ss[f"energy_{style_name}"] = defaults[group]
+    if rows is not None and cfg_.get("substyles"):
+        tempo = substyle_tempo(rows, ss.get(f"substyle_{style_name}", ""))
+        if tempo:
+            ss[f"bpm_{style_name}"] = tempo[0]
+            if group not in defaults:
+                ss[f"energy_{style_name}"] = tempo[1]
 
 
 # ----------------------------------------------------------------- main UI
@@ -367,8 +408,24 @@ with c2:
     moods = sorted(set(cfg["moods"]) | {p["mood"] for p in progression_library if p["mood"]},
                    key=lambda m: (mood_group(m) or "", m) if grouped else m)
     ss.setdefault(f"mood_{style}", cfg["default_mood"] if cfg["default_mood"] in moods else moods[0])
+    substyle = None
+    if cfg.get("substyles"):
+        subs = substyle_options(meta_rows)
+        if subs:
+            default_sub = next((v for v in subs if v.lower() == cfg["default_substyle"]), subs[0])
+            if ss.get(f"substyle_{style}") not in subs:
+                ss[f"substyle_{style}"] = default_sub
+            counts = {v: sum(1 for r in meta_rows if str(r.get("style", "")).strip().lower() == v.lower())
+                      for v in subs}
+            substyle = st.selectbox(
+                "Subestilo", subs, key=f"substyle_{style}", on_change=suggest_bpm_energy,
+                args=(style, meta_rows), format_func=lambda v: f"{v} ({counts[v]} canciones)",
+                help="Se guarda en la columna style del Sheet. La progresión, los patrones y los ritmos de "
+                     "melodía se eligen entre tus canciones de ese subestilo (si alguno falta, entre todas) "
+                     "y el BPM sugerido es el de esas canciones.")
     if grouped:
-        mood = st.selectbox("Mood", moods, key=f"mood_{style}", on_change=suggest_bpm_energy, args=(style,),
+        mood = st.selectbox("Mood", moods, key=f"mood_{style}", on_change=suggest_bpm_energy,
+                            args=(style, meta_rows) if substyle else (style,),
                             format_func=lambda m: f"{m} ({GROUP_LABELS.get(mood_group(m), 'otro')})",
                             help="La progresión y los patrones se eligen entre las canciones del mismo grupo "
                                  f"({' / '.join(GROUP_LABELS.get(g, g) for g in grouped)}).")
@@ -400,9 +457,12 @@ with c3:
         lo_en, hi_en = cfg["energy_range"]
         fallback = ((lo_bpm + hi_bpm) // 2, round((lo_en + hi_en) / 2, 2))
         g = mood_group(mood)
-        ss.setdefault(f"bpm_{style}", cfg["group_defaults"].get(g, fallback)[0])
+        sub_tempo = substyle_tempo(meta_rows, substyle) if substyle else None
+        ss.setdefault(f"bpm_{style}", sub_tempo[0] if sub_tempo else cfg["group_defaults"].get(g, fallback)[0])
         ss.setdefault(f"energy_{style}", cfg["group_defaults"].get(g, fallback)[1])
-        bpm = st.slider("BPM", lo_bpm, hi_bpm, key=f"bpm_{style}", help="Sugerido según el mood; puedes cambiarlo.")
+        bpm = st.slider("BPM", lo_bpm, hi_bpm, key=f"bpm_{style}",
+                        help=("Sugerido según el subestilo; puedes cambiarlo." if substyle
+                              else "Sugerido según el mood; puedes cambiarlo."))
         energy = st.slider("Energy", lo_en, hi_en, step=0.05, key=f"energy_{style}",
                            help="Sugerida según el mood; puedes cambiarla.")
     else:
@@ -439,6 +499,8 @@ bass_choice = a2.selectbox("Patrón de bajo", pattern_options("bass"), format_fu
 params = dict(key=key, mode=mode, variation=variation, mood=mood,
               length_bars=length_bars, temperature=temperature,
               arp_choice=arp_choice, bass_choice=bass_choice)
+if substyle:
+    params["substyle"] = substyle
 if cfg["harmony"] == "patterns":
     params["harmony_choice"] = a3.selectbox(
         "Comping de armonía", pattern_options("harmony"), format_func=pattern_label("harmony"),
@@ -491,6 +553,8 @@ if changed:
 s1, s2 = st.columns([3, 2])
 with s1:
     extra_title = f" · {song['bpm']:g} bpm" if cfg["bpm_range"] else ""
+    if song.get("substyle"):
+        extra_title = f" · {song['substyle']}" + extra_title
     st.subheader(f"{song['key']} {'mayor' if song['mode'] == 'major' else 'menor'} "
                  f"({song['variation']}) · {song['mood']} · {song['length_bars']} compases{extra_title}")
     st.markdown("**Acordes:** " + "  →  ".join(f"`{c}`" for c in song["chords"]))

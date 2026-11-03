@@ -97,7 +97,7 @@ def _names_for_voicings(prog, roots, scale, variation, harmony, labels):
 def generate_song(model, progression_library, key, mode, variation, mood, length_bars,
                   temperature, seed=None, pattern_library=None, bass_choice="random",
                   arp_choice="random", style=AMBIENT, harmony_choice="random", octave=0,
-                  bpm=None, energy=None, lead_choice="random", arp2_choice="auto"):
+                  bpm=None, energy=None, lead_choice="random", arp2_choice="auto", substyle=None):
     """bass/arp/harmony_choice: "random", "basic" or the id of a library pattern.
     Everything that differs between styles comes from musicgen/styles.py."""
     cfg = styles.get(style)
@@ -109,6 +109,11 @@ def generate_song(model, progression_library, key, mode, variation, mood, length
     total_beats = length_bars * BEATS_PER_BAR
 
     group_of = grouper(cfg["mood_groups"]) if cfg["mood_groups"] else None
+    if substyle and cfg.get("substyles"):
+        # techno: the user's sub-style (top, balad, DnB…) comes first; its songs give
+        # the progression and, when they have one, the patterns and melody rhythms
+        progression_library, pattern_library = _prefer_substyle(
+            substyle, progression_library, pattern_library, mood, mode, group_of)
     prog = theory.pick_progression(progression_library, mood, mode, rng, group_of=group_of)
     if cfg["chords"] == "extended":
         labels, roots, chord_pcs = theory.realize_progression_ext(prog, scale, length_bars, variation)
@@ -211,6 +216,7 @@ def generate_song(model, progression_library, key, mode, variation, mood, length
         "arp_pattern": arp_pat["id"] if arp_pat else pat.BASIC,
         "harmony_pattern": (harm_pat["id"] if harm_pat else pat.BASIC) if harmony_patterns else None,
         "key": key, "mode": mode, "variation": variation, "mood": mood,
+        **({"substyle": substyle} if substyle and cfg.get("substyles") else {}),
         "length_bars": length_bars, "temperature": temperature, "seed": seed,
         "scale": scale, "total_beats": total_beats,
         "chords": labels[:n_loop],  # one loop of the progression (sheet format)
@@ -219,6 +225,33 @@ def generate_song(model, progression_library, key, mode, variation, mood, length
         "events": {p: generated[p] for p in cfg["parts"]},
         **extra_info,
     }
+
+
+def _prefer_substyle(substyle, progressions, pattern_library, mood, mode, group_of):
+    """Progressions and patterns of the songs of one sub-style, falling back to all of
+    them wherever the sub-style has nothing (e.g. no slow melody in DnB)."""
+    sub = str(substyle).strip().lower()
+    key = group_of or (lambda m: m)
+    mine = [p for p in progressions if p.get("style") == sub]
+    if mine:
+        same = [p for p in mine if key(p["mood"]) == key(mood.lower()) and p["mode"] == mode.lower()]
+        same = same or [p for p in mine if p["mode"] == mode.lower()]
+        progressions = same or mine
+    lib = dict(pattern_library or {})
+    owner = lib.get("substyles", {})
+    if owner:
+        for part, pool in list(lib.items()):
+            if part == "substyles" or not isinstance(pool, list):
+                continue
+            if part == "melody_templates":
+                kept = []
+                for kind in ("hook", "slow"):
+                    all_kind = [t for t in pool if t["kind"] == kind]
+                    kept += [t for t in all_kind if owner.get(t["source"]) == sub] or all_kind
+                lib[part] = kept
+            else:
+                lib[part] = [p for p in pool if owner.get(p["source"]) == sub] or pool
+    return progressions, lib
 
 
 def _register(pattern):
@@ -309,7 +342,7 @@ def sheet_record(song, number, tag):
         "TimSig": TIME_SIG,
         "mood": song["mood"],
         "energy": song.get("energy", ENERGY),
-        "style": cfg["sheet_style"],
+        "style": song.get("substyle") or cfg["sheet_style"],
         "chords": "-".join(song["chords"]),
         # one column per part, named like the part (melody2, arpeggio2… in techno)
         **{part: f"{pre}{part}_{tag}.mid" for part in song_parts(song)},

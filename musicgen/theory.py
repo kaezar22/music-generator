@@ -202,6 +202,7 @@ def build_progression_library(metadata_rows):
                 "sizes": sizes,
                 "qualities": [_quality_or_none(c) for c in chords],
                 "variation": str(row.get("variation", "")).strip().lower(),
+                "style": str(row.get("style", "")).strip().lower(),
                 "source": str(row.get("Name", "")),
             })
     return lib
