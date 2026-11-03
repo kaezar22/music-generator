@@ -101,8 +101,8 @@ STYLES = {
         "label": "Melodic techno",
         "enabled": True,
         "library": os.path.join(APP_DIR, "library_techno"),
-        "models": None,                          # melodies from rhythm templates, no LSTM yet
-        "melody_source": "templates",            # lstm | templates
+        "models": os.path.join(APP_DIR, "models", "techno"),   # LSTM trained with tools/train_techno.py
+        "melody_source": "hybrid",               # lstm | templates | hybrid (model or rhythm template)
         "melody_columns": ["melody", "melody2", "melody3"],  # rhythm templates + originality library
         "gid_secret": "techno_worksheet_gid", "gid_default": 297000043,
         "melody_tab": "melodies techno",
@@ -113,11 +113,14 @@ STYLES = {
         "pattern_ranges": patterns.TECHNO_RANGE,
         "pattern_options": {
             # files come from the Sheet columns, not from their names
-            "columns": {"bass": ["bass"], "arpeggio": ["arpeggio", "arpeggio2"], "harmony": ["harmony"]},
+            "columns": {"bass": ["bass", "bass2"], "arpeggio": ["arpeggio", "arpeggio2"],
+                        "harmony": ["harmony", "harmony2"]},
             "read_options": {"min_dur": 0.125, "quantize": 0.25},  # live takes: drop re-triggers, 1/16 grid
             "allow_held_bars": True,             # pads held over 2 bars
             "chord_aware": True,                 # v minor and V major in the same song
             "keep_chromatic": ("bass", "arpeggio"),  # G# under A (001 bass), C# over F (002 arp2): on purpose
+            # takes over another progression/key are left out (009 bass2/harmony2, 010 harmony)
+            "min_chord_fit": {"bass": 0.7, "harmony": 0.7},
         },
         "split_held": True,
         "export_loops": True,
@@ -127,8 +130,8 @@ STYLES = {
         "melody_center": 72,
         "harmonic_sevenths": False,              # the chords' own scales already decide the 7th
         "snap_melody": True,
-        "bpm_range": (120, 128), "fixed_bpm": None,
-        "energy_range": (0.6, 0.9), "fixed_energy": None,
+        "bpm_range": (120, 140), "fixed_bpm": None,   # 140: the DnB-flavoured songs
+        "energy_range": (0.6, 0.95), "fixed_energy": None,
         "mood_groups": TECHNO_MOOD_GROUPS,
         "group_defaults": {"oscuro": (126, 0.8), "emotivo": (124, 0.7), "euforico": (128, 0.85)},
         "sheet_style": "worakls",

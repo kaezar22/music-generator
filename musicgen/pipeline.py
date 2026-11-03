@@ -123,8 +123,15 @@ def generate_song(model, progression_library, key, mode, variation, mood, length
     centred = cfg["melody_center"] is not None
     templates = (pattern_library or {}).get("melody_templates") or []
     lead_t = None
-    if cfg.get("melody_source", "lstm") == "templates":
-        # melodic techno: lead from the user's rhythm templates (no model yet)
+    source = cfg.get("melody_source", "lstm")
+    if source == "hybrid" and lead_choice == "model" and model is not None:
+        # melodic techno with its trained model: a motif of `phrase` bars written by
+        # the LSTM, fitted to the chords and repeated like a hook
+        melody = techno_melody.model_lead(model, scale, roots, chord_pcs, bar_scales, length_bars, rng,
+                                          temperature, cfg["melody_center"] + 12 * octave)
+        lead_t = {"id": "model"}
+    elif source in ("templates", "hybrid"):
+        # melodic techno: lead from the user's rhythm templates
         lead_t = techno_melody.choose(templates, "hook", lead_choice, rng)
         melody = techno_melody.make_lead(lead_t, roots, chord_pcs, bar_scales, length_bars, rng,
                                          temperature, cfg["melody_center"] + 12 * octave)

@@ -73,7 +73,9 @@ def read_csv_rows(path):
 def get_model(style):
     """LSTM of the style, or None for styles whose melodies come from templates (techno)."""
     models = STYLES[style]["models"]
-    return MelodyModel(models) if models else None
+    if not models or not os.path.isfile(os.path.join(models, "melody_lstm_weights.npz")):
+        return None
+    return MelodyModel(models)
 
 
 @st.cache_resource
@@ -116,7 +118,7 @@ def get_pattern_library(style):
     cfg = STYLES[style]
     rows = read_csv_rows(os.path.join(cfg["library"], "metadata.csv"))
     lib = patterns.load_patterns(cfg["library"], rows, parts=cfg["pattern_parts"], **cfg["pattern_options"])
-    if cfg.get("melody_source") == "templates":
+    if cfg.get("melody_source") in ("templates", "hybrid"):
         lib["melody_templates"] = techno_melody.load_templates(
             cfg["library"], rows, cfg["melody_columns"], cfg["pattern_options"].get("read_options"))
     return lib
@@ -448,13 +450,16 @@ if cfg["melody_center"] is not None:
                                 format_func=OCTAVES.get, key=f"octave_{style}")
 if cfg["bpm_range"]:
     params.update(bpm=bpm, energy=energy)
-if cfg.get("melody_source") == "templates":
+if cfg.get("melody_source") in ("templates", "hybrid"):
     hooks = [t for t in pattern_library.get("melody_templates", []) if t["kind"] == "hook"]
+    use_model = cfg.get("melody_source") == "hybrid" and model is not None
     params["lead_choice"] = a1.selectbox(
-        "Ritmo del lead", ["random"] + [t["id"] for t in hooks], key=f"lead_{style}",
-        format_func=lambda o: (f"Aleatorio (entre {len(hooks)} ganchos tuyos)" if o == "random" else
+        "Lead", (["model"] if use_model else []) + ["random"] + [t["id"] for t in hooks], key=f"lead_{style}",
+        format_func=lambda o: ("Modelo entrenado (motivo de 4 compases que se repite)" if o == "model" else
+                               f"Ritmo de un gancho tuyo, al azar (entre {len(hooks)})" if o == "random" else
                                f"Ritmo de {o} · {next(t['notes_per_bar'] for t in hooks if t['id'] == o):.1f} notas por compás"),
-        help="El lead toma solo el RITMO de una de tus melodías rítmicas; las notas son nuevas.")
+        help="Modelo: el LSTM entrenado con tus melodías techno escribe un motivo, que se ajusta a los acordes "
+             "y se repite. Ritmo: el lead toma solo el RITMO de una de tus melodías; las notas son nuevas.")
 if "arpeggio2" in cfg["parts"]:
     params["arp2_choice"] = a2.selectbox(
         "Arpegio 2", ["auto"] + [p["id"] for p in pattern_library.get("arpeggio", [])], key=f"arp2_{style}",
@@ -495,7 +500,8 @@ with s1:
     if song.get("arp2_pattern"):
         accomp += f" · arpegio 2: {pattern_name(song['arp2_pattern'])}"
     if song.get("lead_template"):
-        accomp += f" · ritmo del lead: {song['lead_template']} · contramelodía: {song['counter_template']}"
+        lead = "modelo" if song["lead_template"] == "model" else f"ritmo de {song['lead_template']}"
+        accomp += f" · lead: {lead} · contramelodía: {song['counter_template']}"
     st.caption(f"Progresión {'-'.join(song['template_degrees'])} tomada de {song['template_source']} · "
                f"{accomp} · temperatura {song['temperature']} · semilla {song['seed']}"
                + (f" · {song['attempts']} intentos" if song.get("attempts", 1) > 1 else ""))

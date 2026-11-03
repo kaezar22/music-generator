@@ -65,7 +65,8 @@ def _files_from_columns(folder, row, columns):
 
 
 def load_patterns(library_dir, metadata_rows, beats_per_bar=4, parts=PARTS, columns=None,
-                  read_options=None, allow_held_bars=False, chord_aware=False, keep_chromatic=()):
+                  read_options=None, allow_held_bars=False, chord_aware=False, keep_chromatic=(),
+                  min_chord_fit=None, dropped=None):
     """{part: [pattern]} with pattern = {id, source, column, bars, notes_per_bar}.
 
     Default behaviour (ambient, lo-fi): one file per part found by name
@@ -78,6 +79,10 @@ def load_patterns(library_dir, metadata_rows, beats_per_bar=4, parts=PARTS, colu
       chord_aware      read degrees against each bar's chord (v minor and V major
                        in the same song) instead of the plain scale
       keep_chromatic   parts that keep their notes outside the scale (bass)
+      min_chord_fit    {part: share}: drop a file whose notes (weighted by length)
+                       are chord tones of the song's chords less than this share,
+                       i.e. a take written over another progression or key
+      dropped          optional list that receives (id, reason) of dropped files
     """
     meta = {}
     for r in metadata_rows:
@@ -118,6 +123,12 @@ def load_patterns(library_dir, metadata_rows, beats_per_bar=4, parts=PARTS, colu
                     continue
                 if not notes:
                     continue
+                if min_chord_fit and part in min_chord_fit:
+                    fit = _chord_fit(notes, labels, beats_per_bar)
+                    if fit < min_chord_fit[part]:
+                        if dropped is not None:
+                            dropped.append((f"song_{num:03d}/{col}", f"{fit:.0%} notas del acorde"))
+                        continue
                 n_bars = max(1, int((max(o + d for o, _, d in notes) - 1e-6) // beats_per_bar) + 1)
                 if allow_held_bars and n_bars % len(roots) and n_bars > len(roots):
                     # a pad ringing past the loop: count bars up to the last note START
@@ -148,6 +159,16 @@ def load_patterns(library_dir, metadata_rows, beats_per_bar=4, parts=PARTS, colu
                     "notes_per_bar": len(notes) / n_bars,
                 })
     return out
+
+
+def _chord_fit(notes, labels, beats_per_bar=4):
+    """Share of the notes' length that falls on tones of each bar's chord."""
+    pcs = [parse_chord(c)["pcs"] for c in labels]
+    total = fit = 0.0
+    for o, p, d in notes:
+        total += d
+        fit += d * (p % 12 in pcs[int(o // beats_per_bar) % len(pcs)])
+    return fit / total if total else 1.0
 
 
 def _covered(notes, n_bars, beats_per_bar):

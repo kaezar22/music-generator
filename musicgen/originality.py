@@ -141,7 +141,8 @@ def _verdict(r, n_tokens):
     run, cov = r["run"], r["coverage"]
     detail = f"{cov:.0%} coincidente, frase copiada más larga de {run} notas"
     if (cov >= COPY_COVERAGE
-            or run >= 0.5 * r["ref_len"]                      # contiene media canción existente
+            or run >= max(NGRAM, 0.5 * r["ref_len"])          # contiene media canción existente
+            #   (con un mínimo de NGRAM notas: 2 notas de una línea de 3 no son una copia)
             or run >= max(WARN_RUN + 1, 0.5 * n_tokens)       # la mitad de la nueva es una sola cita
             or (run >= COPY_RUN and cov >= WARN_COVERAGE)):
         return "COPIA", detail

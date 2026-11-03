@@ -8,6 +8,12 @@ lead (melody)
     repeated on the following chords (re-voiced by chord degree, like a hook);
     every second phrase rewrites its last bar, and the song ends on the root.
 
+lead from the trained model (model_lead)
+    The LSTM writes a few bars; the first `phrase` bars become the motif and
+    the last bar of the second phrase becomes the answer. Notes on strong beats
+    and long notes move to the nearest chord tone, then the motif is repeated
+    over the progression like the template lead.
+
 counter-line (melody2)
     By rules: the rhythm of one of the user's slow pad-like lines (001, 002) or
     one note per chord, chord tones with the smallest movement, below the lead,
@@ -185,6 +191,77 @@ def _end_on_root(events, roots, length_bars, lo, hi):
     if cands:
         events[-1] = (s, min(cands, key=lambda q: abs(q - p)), d)
     return events
+
+
+# ------------------------------------------------------------------ lead from the model
+MODEL_PHRASE = 4          # bars of the motif the model writes
+MAX_NOTE = 4.0           # beats
+MODEL_TRIES = 6           # new attempts when the model writes (almost) only rests
+
+
+def _fit_to_chords(events, chord_pcs, bar_scales, lo, hi):
+    """Strong-beat / long notes -> nearest chord tone; others -> nearest scale tone."""
+    out = []
+    for s, p, d in events:
+        bar = min(len(chord_pcs) - 1, int(s // BEATS_PER_BAR))
+        pcs = chord_pcs[bar] if _is_strong(s, d) else set(bar_scales[bar]) | chord_pcs[bar]
+        cands = [q for q in range(p - 6, p + 7) if q % 12 in pcs]
+        q = min(cands, key=lambda q: (abs(q - p), q)) if cands else p
+        while q < lo:
+            q += 12
+        while q > hi:
+            q -= 12
+        out.append((s, q, d))
+    return out
+
+
+def model_lead(model, scale, roots, chord_pcs, bar_scales, length_bars, rng, temperature=0.9, center=72):
+    """Lead melody from the style's LSTM, as a repeated hook -> [(start, pitch, dur)]."""
+    from .melody import symbols_to_events   # local import: melody imports nothing from here
+    phrase = min(MODEL_PHRASE, length_bars)
+    lo, hi = center + LEAD_RANGE[0] - 3, center + LEAD_RANGE[1] + 3
+    span = min(length_bars, 2 * phrase)
+    best, best_score = [], -1
+    plen = phrase * BEATS_PER_BAR
+    for _ in range(MODEL_TRIES):
+        symbols = model.generate_symbols(span * BEATS_PER_BAR * 4, temperature, rng)
+        events = symbols_to_events(symbols, scale, getattr(model, "encoding", "c_octave_v1"))
+        # a lead note lasts at most one bar and never rings into the next phrase
+        # (the pretrained model sometimes holds a pad-like note for several bars)
+        events = [(s, p, min(d, MAX_NOTE, (s // plen + 1) * plen - s)) for s, p, d in events
+                  if s < span * BEATS_PER_BAR]
+        # the motif should have notes in every bar: keep the attempt that covers most bars
+        score = len({int(s // BEATS_PER_BAR) for s, _, _ in events if s < plen})
+        if score > best_score:
+            best, best_score = events, score
+        if score == phrase:
+            break
+    events = best
+    if not events:
+        return []
+    total = sum(d for _, _, d in events) or 1.0
+    mean = sum(p * d for _, p, d in events) / total
+    shift = 12 * int(np.floor((center - mean) / 12 + 0.5))
+    events = _fit_to_chords([(s, p + shift, d) for s, p, d in events], chord_pcs, bar_scales, lo, hi)
+
+    motif = [e for e in events if e[0] < phrase * BEATS_PER_BAR]
+    answer_bar = span - 1
+    answer = [e for e in events if int(e[0] // BEATS_PER_BAR) == answer_bar]
+    out = list(motif)
+    for k, bar0 in enumerate(range(phrase, length_bars, phrase)):
+        last = bar0 + phrase - 1
+        for start, pitch, dur in motif:
+            src = int(start // BEATS_PER_BAR)
+            dst = bar0 + src
+            if dst >= length_bars or (k % 2 == 0 and dst == last and answer):
+                continue
+            out.append((bar0 * BEATS_PER_BAR + start, _revoice(pitch, src, dst, roots, bar_scales), dur))
+        if k % 2 == 0 and answer and last < length_bars:   # every second phrase: the model's answer
+            for start, pitch, dur in answer:
+                off = start - answer_bar * BEATS_PER_BAR
+                out.append((last * BEATS_PER_BAR + off, _revoice(pitch, answer_bar, last, roots, bar_scales), dur))
+    out.sort()
+    return _end_on_root(out, roots, length_bars, lo, hi)
 
 
 # ------------------------------------------------------------------ counter-line
